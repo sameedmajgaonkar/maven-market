@@ -12,6 +12,8 @@ Bronze keeps the latest full snapshot (overwrite), because the source is a maste
 """
 from __future__ import annotations
 
+from datetime import date, datetime
+
 from maven_market.config import get
 
 _METHODS = {"pymongo", "spark_connector"}
@@ -34,22 +36,46 @@ def mongo_options(cfg: dict, uri: str, collection: str) -> dict:
     }
 
 
+def schema_types(ddl: str) -> dict[str, str]:
+    """``{column: TYPE}`` from a ``"a INT, b STRING"`` DDL string (simple, non-parameterised types)."""
+    out = {}
+    for part in ddl.split(","):
+        if part.strip():
+            name, type_ = part.split()[:2]
+            out[name] = type_.upper()
+    return out
+
+
 def schema_columns(ddl: str) -> list[str]:
-    """Column names from a ``"a INT, b STRING"`` DDL string."""
-    return [part.split()[0] for part in ddl.split(",") if part.strip()]
+    """Column names from a ``"a INT, b STRING"`` DDL string, in order."""
+    return list(schema_types(ddl))
 
 
-def documents_to_rows(docs: list[dict], columns: list[str]) -> list[dict]:
+def _as_date(value):
+    """datetime -> date; ISO string -> date; date/None unchanged."""
+    if value is None or (isinstance(value, date) and not isinstance(value, datetime)):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    return date.fromisoformat(str(value)[:10])
+
+
+def documents_to_rows(docs: list[dict], columns: list[str], types: dict[str, str] | None = None) -> list[dict]:
     """Project Mongo documents onto the configured columns.
 
     ``_id`` (an ObjectId) becomes a string; fields missing from a document become NULL; fields not
-    in ``columns`` are dropped, so an unexpected new field cannot break the load.
+    in ``columns`` are dropped, so an unexpected new field cannot break the load. BSON dates arrive
+    as ``datetime`` but Spark's DATE type needs ``date``, so DATE columns are converted.
     """
+    types = types or {}
     rows = []
     for doc in docs:
         row = {c: doc.get(c) for c in columns}
         if "_id" in row and row["_id"] is not None:
             row["_id"] = str(row["_id"])
+        for column, type_ in types.items():
+            if type_ == "DATE":
+                row[column] = _as_date(row.get(column))
         rows.append(row)
     return rows
 
@@ -75,7 +101,7 @@ def ingest(spark, dbutils, cfg: dict, collection: str, audit=None):  # pragma: n
     def _run() -> int:
         if method(cfg) == "pymongo":
             docs = _read_pymongo(cfg, uri, collection)
-            rows = documents_to_rows(docs, schema_columns(spec["schema"]))
+            rows = documents_to_rows(docs, schema_columns(spec["schema"]), schema_types(spec["schema"]))
             df = spark.createDataFrame(rows, schema=spec["schema"])
         else:
             df = spark.read.format("mongodb").options(**mongo_options(cfg, uri, collection)).load()

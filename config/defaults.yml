@@ -126,9 +126,21 @@ mongo:
   uri_secret: mongo-uri
   database: maven_market
   collections:
+    # Collection name == key in producer.key_files (the CSV the seed script loads it from).
+    # `schema` drives seeding (CSV -> typed document), reading (DataFrame schema) and column projection.
     products:
       bronze_table: bronze.products_mongo
+      id_field: product_id
       schema: >-
         _id STRING, product_id INT, product_brand STRING, product_name STRING, product_sku LONG,
         product_retail_price DOUBLE, product_cost DOUBLE, product_weight DOUBLE,
         recyclable INT, low_fat INT
+    customers:
+      bronze_table: bronze.customers_mongo
+      id_field: customer_id
+      schema: >-
+        _id STRING, customer_id INT, customer_acct_num LONG, first_name STRING, last_name STRING,
+        customer_address STRING, customer_city STRING, customer_state_province STRING,
+        customer_postal_code INT, customer_country STRING, birthdate DATE, marital_status STRING,
+        yearly_income STRING, gender STRING, total_children INT, num_children_at_home INT,
+        education STRING, acct_open_date DATE, member_card STRING, occupation STRING, homeowner STRING

@@ -11,6 +11,9 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.scripts]
+bronze_csv = "maven_market.jobs.bronze_csv:main"
+
 [project.optional-dependencies]
 # Installed in CI and local dev; on Databricks these are provided by the runtime.
 dev = [

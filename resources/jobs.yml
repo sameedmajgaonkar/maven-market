@@ -1,0 +1,25 @@
+# Paths in resources/*.yml are relative to THIS file (hence ../dist, not ./dist).
+resources:
+  jobs:
+    bronze_csv_ingest:
+      name: maven_market_bronze_csv_ingest
+      description: Auto Loader - load landing-zone CSVs into Bronze (config-driven)
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: ingest_csv
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: bronze_csv
+            parameters:
+              - "--env"
+              - "${var.env}"
+              # config/ is synced with the bundle; the wheel cannot locate it on its own
+              - "--config-dir"
+              - "${workspace.file_path}/config"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - ../dist/*.whl

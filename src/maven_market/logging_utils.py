@@ -18,13 +18,19 @@ _METRIC_KEYS = ("rows_in", "rows_out", "rows_rejected")
 
 Writer = Callable[[str, dict], None]
 
+# Explicit schema: Spark cannot infer a column type from None (e.g. ``error`` on success rows).
+AUDIT_SCHEMA_DDL = (
+    "run_id STRING, event_ts TIMESTAMP, stage STRING, source STRING, status STRING, "
+    "error STRING, duration_s DOUBLE, rows_in LONG, rows_out LONG, rows_rejected LONG"
+)
+
 
 def _spark_writer(table: str, row: dict) -> None:
     """Default writer: append one row to a Delta table using the active SparkSession."""
     from pyspark.sql import SparkSession  # imported lazily; unavailable in plain unit tests
 
     spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
-    spark.createDataFrame([row]).write.format("delta").mode("append").saveAsTable(table)
+    spark.createDataFrame([row], schema=AUDIT_SCHEMA_DDL).write.format("delta").mode("append").saveAsTable(table)
 
 
 class AuditLogger:

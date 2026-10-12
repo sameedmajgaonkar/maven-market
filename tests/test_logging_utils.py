@@ -1,7 +1,7 @@
 """Tests for the audit logging framework (maven_market.logging_utils)."""
 import pytest
 
-from maven_market.logging_utils import AuditLogger
+from maven_market.logging_utils import AUDIT_SCHEMA_DDL, AuditLogger
 
 
 class Sink:
@@ -39,6 +39,15 @@ def test_missing_metrics_default_to_zero():
 def test_invalid_status_rejected():
     with pytest.raises(ValueError):
         _logger(Sink()).log_event("bronze", "x", {}, "WEIRD")
+
+
+def test_audit_schema_ddl_matches_row_keys():
+    # Spark can't infer a type from None (error is None on success), so the writer uses an
+    # explicit schema; it must cover exactly the keys log_event emits.
+    sink = Sink()
+    row = _logger(sink).log_event("bronze", "x", {}, "SUCCESS")
+    ddl_cols = [c.split()[0] for c in AUDIT_SCHEMA_DDL.split(",")]
+    assert set(ddl_cols) == set(row)
 
 
 def test_track_logs_success_with_duration():

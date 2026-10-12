@@ -16,10 +16,11 @@ secret_scope: maven_market
 
 # ADLS Gen2 landing zone for raw CSVs (Auto Loader source root)
 storage:
-  account: ${ADLS_ACCOUNT:replace_storage_account}
+  account: ${ADLS_ACCOUNT:stmavenmarketxyz}
   landing_container: landing
   uc_container: unity-catalog
-  landing_root: abfss://landing@${ADLS_ACCOUNT:replace_storage_account}.dfs.core.windows.net/csv
+  # Source folders (customers/, transactions/, ...) sit directly under the container root.
+  landing_root: abfss://landing@${ADLS_ACCOUNT:stmavenmarketxyz}.dfs.core.windows.net
 
 # Audit / observability
 audit:

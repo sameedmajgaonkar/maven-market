@@ -47,6 +47,36 @@ def check(profile: str, warehouse_id: str, label: str, sql: str) -> bool:
     return True
 
 
+def scalar(profile: str, warehouse_id: str, sql: str):
+    result = run_sql(profile, warehouse_id, sql)
+    if result.get("status", {}).get("state") != "SUCCEEDED":
+        msg = result.get("status", {}).get("error", {}).get("message", "unknown error")
+        raise RuntimeError(msg)
+    return result["result"]["data_array"][0][0]
+
+
+def check_stream_join(profile: str, warehouse_id: str, cfg: dict, name: str) -> bool:
+    """A stream-static LEFT join must neither drop nor multiply events, and should enrich them."""
+    spec = T.SILVER_STREAMS[name]
+    bronze = T.names(cfg)[f"bronze_{spec['bronze']}"]
+    label = f"silver.{name} (stream-static join)"
+    try:
+        before = int(scalar(profile, warehouse_id, f"SELECT count(*) FROM {bronze}"))
+        joined_sql = T.stream_equivalent_sql(cfg, name)
+        after = int(scalar(profile, warehouse_id, f"SELECT count(*) FROM ({joined_sql})"))
+        enriched = int(scalar(
+            profile, warehouse_id, f"SELECT count(*) FROM ({joined_sql}) WHERE product_name IS NOT NULL"
+        ))
+    except RuntimeError as exc:
+        print(f"FAIL  {label}\n      {exc}")
+        return False
+    if after != before:
+        print(f"FAIL  {label}: {before} events in, {after} out - the join changed the row count")
+        return False
+    print(f"ok    {label:34} rows={after} (unchanged by join), enriched with product={enriched}")
+    return True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", required=True)
@@ -62,6 +92,9 @@ def main() -> int:
         ok &= check(args.profile, args.warehouse_id, f"silver.{name} (scd2 exprs)", sql)
     for name, template in T.SILVER_SQL.items():
         ok &= check(args.profile, args.warehouse_id, f"silver.{name}", T.render(template, cfg))
+    # needs the Silver dimensions to exist (i.e. after the pipeline has run once)
+    for name in T.SILVER_STREAMS:
+        ok &= check_stream_join(args.profile, args.warehouse_id, cfg, name)
     print("\nALL OK" if ok else "\nFAILURES ABOVE")
     return 0 if ok else 1
 

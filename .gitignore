@@ -1,0 +1,34 @@
+# ---- Data (lives in ADLS Gen2 landing zone, never in git) ----
+Data-20260414T080156Z-3-001/
+Data-20260414T080156Z-3-001.zip
+*.csv
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# ---- Databricks / secrets ----
+.databrickscfg
+.databricks/
+*.env
+.env
+
+# ---- Superpowers execution scratch (git-ignored by design) ----
+.superpowers/
+
+# ---- Editor / OS / tooling ----
+.claude/
+.obsidian/
+.vscode/
+.idea/
+.DS_Store

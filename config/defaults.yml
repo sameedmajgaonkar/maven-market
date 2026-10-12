@@ -36,15 +36,56 @@ sources:
   calendar:  {path: calendar,     bronze_table: bronze.calendar,     format: csv}
   transactions: {path: transactions, bronze_table: bronze.transactions, format: csv}
 
+# Auto Loader (CSV) settings. schema/checkpoint dirs are created under storage.landing_root.
+autoloader:
+  schema_dir: _schemas
+  checkpoint_dir: _checkpoints
+  # 'rescue': unexpected/new columns land in the rescued-data column; the stream never fails on drift.
+  schema_evolution_mode: rescue
+  rescued_data_column: _rescued_data
+  infer_column_types: true
+
 # Streaming sources (Kafka topics simulated by the producer) -> Bronze
+# Credentials are NOT here: only the *names* of the Key Vault secrets (read via the secret scope).
 kafka:
   bootstrap: ${CONFLUENT_BOOTSTRAP:}
+  secrets:
+    bootstrap: confluent-bootstrap
+    api_key: confluent-api-key
+    api_secret: confluent-api-secret
+  starting_offsets: earliest
+  checkpoint_dir: _checkpoints
   topics:
-    orders:    {bronze_table: bronze.orders}
-    inventory: {bronze_table: bronze.inventory}
+    orders:
+      bronze_table: bronze.orders
+      dead_letter_table: bronze.orders_dead_letter
+      # DDL schema for from_json; an event missing any 'required' key goes to the dead-letter table.
+      schema: >-
+        event_type STRING, order_id STRING, customer_id INT, product_id INT, store_id INT,
+        quantity INT, unit_price DOUBLE, order_ts STRING
+      required: [order_id, customer_id, product_id, store_id]
+    inventory:
+      bronze_table: bronze.inventory
+      dead_letter_table: bronze.inventory_dead_letter
+      schema: >-
+        event_type STRING, product_id INT, store_id INT, quantity_on_hand INT, event_ts STRING
+      required: [product_id, store_id]
+
+# Event simulator (orders + inventory -> Kafka). Reads REAL keys from the dimension CSVs so
+# events join in Silver.
+producer:
+  events_per_second: 5
+  max_events: 0            # 0 = run until stopped
+  seed: 42
+  keys_dir: ${PRODUCER_KEYS_DIR:Data-20260414T080156Z-3-001/Data/SPTStore Data Files}
+  key_files:
+    customers: MavenMarket_Customers.csv
+    products: MavenMarket_Products.csv
+    stores: MavenMarket_Stores.csv
 
 # NoSQL source (MongoDB Atlas) -> Bronze
 mongo:
+  uri_secret: mongo-uri
   database: maven_market
   collections:
     product_reviews: {bronze_table: bronze.product_reviews}

@@ -66,6 +66,20 @@ def load_config(env: str, config_dir: str | Path | None = None) -> dict:
     return _interpolate(_deep_merge(base, override))
 
 
+def table_fqn(cfg: dict, layer: str, key: str) -> str:
+    """Fully qualified ``catalog.schema.table`` for a pipeline dataset (``layer`` = silver | gold)."""
+    table = get(cfg, f"pipeline.{layer}.{key}")
+    return f"{get(cfg, 'catalog')}.{get(cfg, f'schemas.{layer}')}.{table}"
+
+
+def load_expectations(config_dir: str | Path | None = None) -> dict:
+    """Load ``expectations.yml``: per-table data-quality rules grouped by action (warn/drop/fail)."""
+    path = (Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR) / "expectations.yml"
+    if not path.exists():
+        raise FileNotFoundError(f"No expectations file: {path}")
+    return yaml.safe_load(path.read_text()) or {}
+
+
 def get(cfg: dict, dotted_key: str) -> Any:
     """Read a nested value by dotted path; raise ``KeyError`` if any segment is missing."""
     node: Any = cfg

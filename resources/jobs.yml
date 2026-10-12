@@ -24,6 +24,36 @@ resources:
             dependencies:
               - ../dist/*.whl
 
+    medallion_refresh:
+      name: maven_market_medallion_refresh
+      description: Bronze (CSV + Kafka) -> Silver -> Gold, end to end
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: ingest_csv
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: bronze_csv
+            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config"]
+        - task_key: ingest_kafka
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: bronze_kafka
+            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config"]
+        - task_key: refresh_silver_gold
+          depends_on:
+            - task_key: ingest_csv
+            - task_key: ingest_kafka
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.silver_gold.id}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - ../dist/*.whl
+
     kafka_producer:
       name: maven_market_kafka_producer
       description: Simulate orders + inventory events into Confluent Kafka (keys from Bronze dimensions)

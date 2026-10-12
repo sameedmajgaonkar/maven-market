@@ -83,6 +83,39 @@ producer:
     products: MavenMarket_Products.csv
     stores: MavenMarket_Stores.csv
 
+# Silver/Gold datasets built by the Lakeflow pipeline. Keys are logical names used in code and in
+# expectations.yml; values are the table names inside the layer's schema (see `schemas`).
+pipeline:
+  silver:
+    dim_customer: dim_customer      # SCD2
+    dim_product: dim_product        # SCD2
+    dim_store: dim_store
+    dim_region: dim_region
+    dim_date: dim_date
+    transactions: transactions
+    returns: returns
+    orders: orders
+    inventory: inventory
+  gold:
+    dim_date: dim_date
+    dim_customer: dim_customer      # current version of the SCD2 silver dim
+    dim_product: dim_product
+    dim_store: dim_store            # store + region, denormalised
+    fact_sales: fact_sales
+    fact_returns: fact_returns
+    fact_orders: fact_orders
+    fact_inventory: fact_inventory  # latest snapshot per product/store
+    agg_sales_monthly: agg_sales_monthly
+    agg_product_performance: agg_product_performance
+    agg_store_performance: agg_store_performance
+    agg_customer_segments: agg_customer_segments
+    agg_orders_realtime: agg_orders_realtime
+    agg_inventory_turns: agg_inventory_turns
+  # Country -> governed `data_region` tag value (drives Phase 9 row-level security)
+  data_region_by_country: {USA: NA, Canada: NA, Mexico: NA}
+  # Columns that must not create a new SCD2 version when they change (lineage/housekeeping)
+  scd2_ignore_columns: [_rescued_data, _source_file_path, _source_file_name, _source_file_modified_at, _ingested_at]
+
 # NoSQL source (MongoDB Atlas) -> Bronze
 mongo:
   uri_secret: mongo-uri

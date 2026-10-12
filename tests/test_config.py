@@ -1,6 +1,4 @@
 """Tests for the config-driven loader (maven_market.config)."""
-import os
-
 import pytest
 
 from maven_market.config import load_config, get

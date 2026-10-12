@@ -1,0 +1,111 @@
+# CI/CD for the Maven Market lakehouse (Databricks Asset Bundle).
+#
+#   pull request -> main : lint + unit tests + `bundle validate` for dev AND prod
+#   push to main         : the same checks, then `bundle deploy -t prod`
+#
+# Auth is OIDC workload-identity federation (no PAT, no stored Databricks secret). One-time setup:
+# docs/pocs/poc2-cicd.md. Required GitHub configuration:
+#   repository variable   DATABRICKS_HOST       workspace URL
+#   environment `prod`    secret DATABRICKS_CLIENT_ID = service principal application (client) ID
+name: ci-cd
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install (runtime deps + test tooling; the tests need no Spark)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pytest flake8 build
+
+      - name: flake8
+        run: flake8 src tests scripts
+
+      - name: pytest
+        run: pytest -q
+
+      - name: Build wheel (the bundle ships it)
+        run: python -m build --wheel
+
+  validate:
+    name: Validate bundle (dev + prod)
+    needs: test
+    # Skipped (not failed) until the OIDC setup in docs/pocs/poc2-cicd.md has been done.
+    if: ${{ vars.DATABRICKS_HOST != '' }}
+    runs-on: ubuntu-latest
+    # `bundle validate` talks to the workspace, so it authenticates like the deploy does. It needs
+    # the `prod` environment's federation subject, hence the environment here too.
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: python -m pip install build
+
+      - uses: databricks/setup-cli@v0.9.0
+
+      - name: Validate dev
+        run: databricks bundle validate -t dev
+
+      - name: Validate prod
+        run: databricks bundle validate -t prod
+
+  deploy-prod:
+    name: Deploy to prod
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: python -m pip install build
+
+      - uses: databricks/setup-cli@v0.9.0
+
+      - name: Deploy bundle to prod
+        run: databricks bundle deploy -t prod

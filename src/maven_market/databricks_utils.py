@@ -12,3 +12,4 @@ def get_dbutils(spark):  # pragma: no cover - needs Databricks
         from databricks.sdk.runtime import dbutils
 
         return dbutils
+import os

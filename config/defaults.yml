@@ -1,0 +1,49 @@
+# Default config — shared across environments. Override per-env in dev.yml / prod.yml.
+# Read via maven_market.config.load_config(env). ${VAR} / ${VAR:default} = env substitution.
+
+catalog: maven_market_uc
+
+schemas:
+  bronze: bronze
+  silver: silver
+  gold: gold
+  audit: audit
+
+# Databricks workspace + secret scope (host comes from env/target at deploy time)
+workspace:
+  host: ${DATABRICKS_HOST:https://REPLACE-with-your-workspace.azuredatabricks.net}
+secret_scope: maven_market
+
+# ADLS Gen2 landing zone for raw CSVs (Auto Loader source root)
+storage:
+  account: ${ADLS_ACCOUNT:replace_storage_account}
+  landing_container: landing
+  uc_container: unity-catalog
+  landing_root: abfss://landing@${ADLS_ACCOUNT:replace_storage_account}.dfs.core.windows.net/csv
+
+# Audit / observability
+audit:
+  table: audit.audit_logs
+
+# Batch CSV sources -> Bronze. 'path' is relative to storage.landing_root.
+sources:
+  customers: {path: customers,    bronze_table: bronze.customers,    format: csv}
+  products:  {path: products,     bronze_table: bronze.products,     format: csv}
+  stores:    {path: stores,       bronze_table: bronze.stores,       format: csv}
+  regions:   {path: regions,      bronze_table: bronze.regions,      format: csv}
+  returns:   {path: returns,      bronze_table: bronze.returns,      format: csv}
+  calendar:  {path: calendar,     bronze_table: bronze.calendar,     format: csv}
+  transactions: {path: transactions, bronze_table: bronze.transactions, format: csv}
+
+# Streaming sources (Kafka topics simulated by the producer) -> Bronze
+kafka:
+  bootstrap: ${CONFLUENT_BOOTSTRAP:}
+  topics:
+    orders:    {bronze_table: bronze.orders}
+    inventory: {bronze_table: bronze.inventory}
+
+# NoSQL source (MongoDB Atlas) -> Bronze
+mongo:
+  database: maven_market
+  collections:
+    product_reviews: {bronze_table: bronze.product_reviews}

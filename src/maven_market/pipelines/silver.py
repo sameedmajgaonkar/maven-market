@@ -52,6 +52,19 @@ def _define_scd2_dimension(dim: str, spec: dict) -> None:
     )
 
 
+def _define_silver_stream(name: str, spec: dict) -> None:
+    """Streaming table: Kafka events (stream) left-joined to the current dimensions (static)."""
+    @dp.table(name=table_fqn(cfg, "silver", name), comment=f"{name} events enriched with dimensions (silver)")
+    @with_expectations(EXPECTATIONS, name)
+    def _stream():
+        stream = spark.readStream.table(NAMES[f"bronze_{spec['bronze']}"]).selectExpr(*spec["exprs"])
+        if spec.get("dedupe_on"):
+            stream = stream.dropDuplicates(spec["dedupe_on"])
+        for static in spec["static"]:
+            stream = stream.join(spark.sql(T.render(static["sql"], cfg)), on=static["on"], how="left")
+        return stream
+
+
 def _define_silver_view(name: str, template: str) -> None:
     @dp.materialized_view(name=table_fqn(cfg, "silver", name), comment=f"Cleansed {name} (silver)")
     @with_expectations(EXPECTATIONS, name)
@@ -61,6 +74,9 @@ def _define_silver_view(name: str, template: str) -> None:
 
 for _dim, _spec in T.SCD2_SOURCES.items():
     _define_scd2_dimension(_dim, _spec)
+
+for _name, _spec in T.SILVER_STREAMS.items():
+    _define_silver_stream(_name, _spec)
 
 for _name, _template in T.SILVER_SQL.items():
     _define_silver_view(_name, _template)

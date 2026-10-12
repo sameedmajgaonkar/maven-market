@@ -8,6 +8,8 @@ wired into the pipeline. Table names are placeholders such as ``{bronze_customer
 Silver:
   * SCD2 dimensions (customer, product): ``SCD2_SOURCES`` = select-expressions applied to a
     streaming read of Bronze, then fed to ``dp.create_auto_cdc_flow``.
+  * Kafka events (orders, inventory): ``SILVER_STREAMS`` - streaming tables that stream-static join
+    the events to the current dimensions.
   * Everything else: ``SILVER_SQL`` (latest-version-per-key dedupe, typing, trimming).
 Gold: ``GOLD_SQL`` - conformed dimensions, facts and BI aggregates (read Silver/Gold only).
 """
@@ -159,16 +161,62 @@ SILVER_SQL = {
         "SELECT return_date, product_id, store_id, quantity, _source_file_name, _ingested_at "
         "FROM {bronze_returns}"
     ),
-    "orders": _latest_per_key(
-        "order_id, customer_id, product_id, store_id, quantity, unit_price, "
-        "cast(order_ts AS TIMESTAMP) AS order_ts, _kafka_partition, _kafka_offset, _ingested_at",
-        "{bronze_orders}", "order_id", "_kafka_timestamp DESC, _kafka_offset DESC",
-    ),
-    "inventory": (
-        "SELECT product_id, store_id, quantity_on_hand, cast(event_ts AS TIMESTAMP) AS event_ts, "
-        "_kafka_partition, _kafka_offset, _ingested_at FROM {bronze_inventory}"
-    ),
 }
+
+
+# --------------------------------------------------------------- Silver: stream-static joins
+
+# Kafka events (the STREAM) are enriched with dimension attributes (the STATIC side): a left join,
+# so an event for an unknown key is kept (with NULL attributes) rather than silently lost.
+#
+# `static[*].sql` selects from a Silver dimension. SCD2 dimensions are filtered to their CURRENT rows
+# (`__END_AT IS NULL`); joining every version would multiply each event by the dimension's history.
+# `dedupe_on` removes re-delivered events (stateful; fine at this scale).
+_STATIC_PRODUCT = {
+    "sql": (
+        "SELECT product_id, product_brand, product_name, product_cost AS unit_cost "
+        "FROM {silver_dim_product} WHERE __END_AT IS NULL"
+    ),
+    "on": ["product_id"],
+}
+_STATIC_STORE = {
+    "sql": "SELECT store_id, store_name, store_country FROM {silver_dim_store}",
+    "on": ["store_id"],
+}
+_STATIC_CUSTOMER = {
+    "sql": "SELECT customer_id, member_card FROM {silver_dim_customer} WHERE __END_AT IS NULL",
+    "on": ["customer_id"],
+}
+
+SILVER_STREAMS = {
+    "orders": {
+        "bronze": "orders",
+        "exprs": [
+            "order_id", "customer_id", "product_id", "store_id", "quantity", "unit_price",
+            "cast(order_ts AS TIMESTAMP) AS order_ts", "_kafka_partition", "_kafka_offset", "_ingested_at",
+        ],
+        "dedupe_on": ["order_id"],
+        "static": [_STATIC_PRODUCT, _STATIC_STORE, _STATIC_CUSTOMER],
+    },
+    "inventory": {
+        "bronze": "inventory",
+        "exprs": [
+            "product_id", "store_id", "quantity_on_hand", "cast(event_ts AS TIMESTAMP) AS event_ts",
+            "_kafka_partition", "_kafka_offset", "_ingested_at",
+        ],
+        "static": [_STATIC_PRODUCT, _STATIC_STORE],
+    },
+}
+
+
+def stream_equivalent_sql(cfg: dict, name: str) -> str:
+    """Batch SQL equivalent of a stream-static join, for dry-runs on a SQL warehouse."""
+    spec = SILVER_STREAMS[name]
+    sql = f"SELECT {', '.join(spec['exprs'])} FROM {names(cfg)['bronze_' + spec['bronze']]}"
+    for i, static in enumerate(spec["static"], 1):
+        using = ", ".join(static["on"])
+        sql = f"SELECT * FROM ({sql}) LEFT JOIN ({render(static['sql'], cfg)}) j{i} USING ({using})"
+    return sql
 
 
 # ------------------------------------------------------------------------------------- Gold

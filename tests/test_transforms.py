@@ -13,9 +13,10 @@ def cfg():
 
 
 def test_every_silver_and_gold_table_in_config_has_a_definition(cfg):
-    # silver: SCD2 dims come from stream exprs, the rest from SQL
-    silver_defined = set(T.SILVER_SQL) | set(T.SCD2_SOURCES)
-    assert silver_defined == set(cfg["pipeline"]["silver"])
+    # silver: SCD2 dims come from stream exprs, Kafka datasets are stream-static joins, rest is SQL
+    groups = [set(T.SILVER_SQL), set(T.SCD2_SOURCES), set(T.SILVER_STREAMS)]
+    assert set().union(*groups) == set(cfg["pipeline"]["silver"])
+    assert sum(len(g) for g in groups) == len(set().union(*groups)), "a silver table has two definitions"
     assert set(T.GOLD_SQL) == set(cfg["pipeline"]["gold"])
 
 
@@ -30,6 +31,55 @@ def test_silver_sql_renders_fully(cfg, name):
 def test_gold_sql_renders_fully(cfg, name):
     sql = T.render(T.GOLD_SQL[name], cfg)
     assert not re.search(r"[{}]", sql), f"unrendered placeholder in gold.{name}"
+
+
+# ---- stream-static joins (PDF: "Silver: join Streams with Static data") ----
+
+def test_kafka_datasets_are_streams_joined_to_static_dimensions():
+    assert set(T.SILVER_STREAMS) == {"orders", "inventory"}
+    for name, spec in T.SILVER_STREAMS.items():
+        assert spec["static"], f"silver.{name} must join at least one static dimension"
+        assert "orders" not in T.SILVER_SQL and "inventory" not in T.SILVER_SQL
+
+
+def test_stream_join_keys_are_produced_by_the_stream_expressions():
+    for name, spec in T.SILVER_STREAMS.items():
+        produced = set(T.output_columns(spec["exprs"]))
+        for static in spec["static"]:
+            assert set(static["on"]) <= produced, f"silver.{name}: join key not in stream output"
+        assert set(spec.get("dedupe_on", [])) <= produced
+
+
+@pytest.mark.parametrize("name", sorted(set(T.SILVER_STREAMS)))
+def test_static_sides_render_fully_and_read_only_silver(cfg, name):
+    for static in T.SILVER_STREAMS[name]["static"]:
+        sql = T.render(static["sql"], cfg)
+        assert not re.search(r"[{}]", sql)
+        assert "bronze" not in sql and "maven_market_uc.silver." in sql
+
+
+def test_static_side_over_an_scd2_dimension_only_reads_current_rows(cfg):
+    """Joining all SCD2 versions would multiply every streamed row by its number of versions."""
+    scd2_tables = [T.names(cfg)[f"silver_{d}"] for d in T.SCD2_SOURCES]
+    for name, spec in T.SILVER_STREAMS.items():
+        for static in spec["static"]:
+            sql = T.render(static["sql"], cfg)
+            if any(t in sql for t in scd2_tables):
+                assert "__END_AT IS NULL" in sql, f"silver.{name}: static side must filter to current SCD2 rows"
+
+
+@pytest.mark.parametrize("name", sorted(set(T.SILVER_STREAMS)))
+def test_batch_equivalent_sql_for_dry_runs(cfg, name):
+    sql = T.stream_equivalent_sql(cfg, name)
+    assert not re.search(r"[{}]", sql)
+    assert sql.count("LEFT JOIN") == len(T.SILVER_STREAMS[name]["static"])
+    assert T.names(cfg)[f"bronze_{T.SILVER_STREAMS[name]['bronze']}"] in sql
+
+
+def test_orders_are_enriched_with_product_store_and_customer_attributes(cfg):
+    text = " ".join(T.render(s["sql"], cfg) for s in T.SILVER_STREAMS["orders"]["static"])
+    for column in ("product_name", "product_brand", "store_name", "member_card"):
+        assert column in text
 
 
 def test_gold_reads_only_silver_or_gold_never_bronze(cfg):

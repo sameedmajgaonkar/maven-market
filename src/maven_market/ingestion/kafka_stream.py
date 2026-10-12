@@ -68,7 +68,11 @@ def split_valid_and_dead(raw_df, schema: str, required: list[str]):  # pragma: n
 
 
 def ingest(spark, dbutils, cfg: dict, topic: str, audit=None):  # pragma: no cover - needs Databricks
-    """Start the streaming query for ``topic``; valid rows -> Bronze, bad rows -> dead-letter."""
+    """Drain all new events for ``topic`` and stop (``availableNow``).
+
+    Valid rows -> Bronze, bad rows -> dead-letter. ``availableNow`` is used because serverless
+    compute only supports that trigger; schedule the job to pick up newly arrived events.
+    """
     t = topic_settings(cfg, topic)
     catalog = get(cfg, "catalog")
     bronze, dead_table = f"{catalog}.{t['bronze_table']}", f"{catalog}.{t['dead_letter_table']}"
@@ -81,8 +85,20 @@ def ingest(spark, dbutils, cfg: dict, topic: str, audit=None):  # pragma: no cov
         dead.write.mode("append").saveAsTable(dead_table)
 
     checkpoint = f"{get(cfg, 'storage.landing_root').rstrip('/')}/{get(cfg, 'kafka.checkpoint_dir')}/kafka_{topic}"
-    return (
-        raw.writeStream.foreachBatch(_write)
-        .option("checkpointLocation", checkpoint)
-        .start()
-    )
+
+    def _run():
+        query = (
+            raw.writeStream.foreachBatch(_write)
+            .option("checkpointLocation", checkpoint)
+            .trigger(availableNow=True)
+            .start()
+        )
+        query.awaitTermination()
+        return query
+
+    if audit is None:
+        return _run()
+    with audit.track("bronze", f"kafka.{topic}") as metrics:
+        query = _run()
+        metrics["rows_in"] = metrics["rows_out"] = sum(p.get("numInputRows", 0) for p in (query.recentProgress or []))
+        return query

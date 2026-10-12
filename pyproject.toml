@@ -9,10 +9,13 @@ description = "Maven Market - Secure Retail Analytics Lakehouse (Databricks caps
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
+    "confluent-kafka>=2.3",
 ]
 
 [project.scripts]
 bronze_csv = "maven_market.jobs.bronze_csv:main"
+bronze_kafka = "maven_market.jobs.bronze_kafka:main"
+kafka_producer = "maven_market.producers.kafka_producer:main"
 
 [project.optional-dependencies]
 # Installed in CI and local dev; on Databricks these are provided by the runtime.

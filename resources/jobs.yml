@@ -23,3 +23,51 @@ resources:
             environment_version: "3"
             dependencies:
               - ../dist/*.whl
+
+    kafka_producer:
+      name: maven_market_kafka_producer
+      description: Simulate orders + inventory events into Confluent Kafka (keys from Bronze dimensions)
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: produce
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: kafka_producer
+            parameters:
+              - "--env"
+              - "${var.env}"
+              - "--config-dir"
+              - "${workspace.file_path}/config"
+              - "--max-events"
+              - "${var.producer_max_events}"
+              - "--events-per-second"
+              - "${var.producer_events_per_second}"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - ../dist/*.whl
+
+    bronze_kafka_ingest:
+      name: maven_market_bronze_kafka_ingest
+      description: Drain new Kafka events (orders, inventory) into Bronze; bad events go to dead-letter tables
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: ingest_kafka
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: bronze_kafka
+            parameters:
+              - "--env"
+              - "${var.env}"
+              - "--config-dir"
+              - "${workspace.file_path}/config"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - ../dist/*.whl

@@ -32,6 +32,11 @@ variables:
   env:
     description: Config environment name passed to maven_market.config.load_config()
     default: dev
+  producer_max_events:
+    description: Events the simulator emits per run (0 = until stopped; keep finite for jobs)
+    default: "600"
+  producer_events_per_second:
+    default: "5"
 
 targets:
   dev:

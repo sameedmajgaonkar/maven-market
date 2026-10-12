@@ -29,3 +29,4 @@ databricks bundle validate -t dev
 ```
 
 Implementation plan: `docs/superpowers/plans/2026-10-11-maven-market-lakehouse.md`.
+

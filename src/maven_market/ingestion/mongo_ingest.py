@@ -1,14 +1,17 @@
-"""MongoDB Atlas -> Bronze (product master snapshot).
+"""MongoDB Atlas -> Bronze (customers + products master data).
 
 Two interchangeable methods, chosen by ``mongo.method`` in config:
 
-* ``pymongo`` (default): read the collection with the pure-Python driver and build a DataFrame.
-  Works on serverless compute and is plenty for master data (thousands of documents).
+* ``pymongo`` (default): read the collection with the pure-Python driver. Works on serverless
+  compute and is plenty for master data (thousands of documents).
 * ``spark_connector``: MongoDB Spark Connector v10.x (``format("mongodb")``). Needs a
   **Dedicated (single-user)** classic cluster with the connector Maven library installed.
 
+Bronze is append-only like every other Bronze table, but a master-data extract is a full snapshot,
+so only documents that are NEW or CHANGED since the latest Bronze version are appended. Re-running
+with nothing changed appends zero rows, and Silver's SCD2 flow sees real changes only.
+
 The connection URI is read from the secret scope; it is never in config or code.
-Bronze keeps the latest full snapshot (overwrite), because the source is a master table.
 """
 from __future__ import annotations
 
@@ -80,6 +83,22 @@ def documents_to_rows(docs: list[dict], columns: list[str], types: dict[str, str
     return rows
 
 
+def changed_rows(rows: list[dict], latest_by_id: dict, id_field: str, columns: list[str]) -> list[dict]:
+    """Rows that are new, or differ from the latest stored version of the same id.
+
+    ``_id`` is ignored in the comparison (it is Mongo's own identifier, not business data).
+    Comparison is against the LATEST version only, so a value that reverts to an older one is still
+    recognised as a change.
+    """
+    compare = [c for c in columns if c != "_id"]
+    out = []
+    for row in rows:
+        previous = latest_by_id.get(row[id_field])
+        if previous is None or any(previous.get(c) != row.get(c) for c in compare):
+            out.append(row)
+    return out
+
+
 def _read_pymongo(cfg: dict, uri: str, collection: str) -> list[dict]:  # pragma: no cover - needs Atlas
     from pymongo import MongoClient  # lazy: only needed on the machine that talks to Atlas
 
@@ -90,29 +109,47 @@ def _read_pymongo(cfg: dict, uri: str, collection: str) -> list[dict]:  # pragma
         client.close()
 
 
+def _latest_existing(spark, table: str, id_field: str) -> dict:  # pragma: no cover - needs Spark
+    """``{id: row-dict}`` of the newest Bronze version per id (empty if the table does not exist yet)."""
+    if not spark.catalog.tableExists(table):
+        return {}
+    latest = spark.sql(
+        f"SELECT * EXCEPT (_rn) FROM (SELECT *, row_number() OVER "
+        f"(PARTITION BY {id_field} ORDER BY _ingested_at DESC) AS _rn FROM {table}) WHERE _rn = 1"
+    )
+    return {r[id_field]: r.asDict() for r in latest.collect()}
+
+
 def ingest(spark, dbutils, cfg: dict, collection: str, audit=None):  # pragma: no cover - needs Databricks
-    """Snapshot ``collection`` into its Bronze table; returns the row count."""
+    """Append new/changed documents of ``collection`` to its Bronze table; returns rows appended."""
     from pyspark.sql import functions as F
 
     spec = get(cfg, f"mongo.collections.{collection}")
+    id_field, ddl = spec["id_field"], spec["schema"]
+    columns, types = schema_columns(ddl), schema_types(ddl)
     uri = dbutils.secrets.get(get(cfg, "secret_scope"), get(cfg, "mongo.uri_secret"))
     target = f"{get(cfg, 'catalog')}.{spec['bronze_table']}"
 
-    def _run() -> int:
+    def _run(metrics: dict | None = None) -> int:
         if method(cfg) == "pymongo":
             docs = _read_pymongo(cfg, uri, collection)
-            rows = documents_to_rows(docs, schema_columns(spec["schema"]), schema_types(spec["schema"]))
-            df = spark.createDataFrame(rows, schema=spec["schema"])
         else:
-            df = spark.read.format("mongodb").options(**mongo_options(cfg, uri, collection)).load()
-            df = df.withColumn("_id", F.col("_id").cast("string"))
-        df = df.withColumn("_ingested_at", F.current_timestamp())
-        df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(target)
-        return df.count()
+            frame = spark.read.format("mongodb").options(**mongo_options(cfg, uri, collection)).load()
+            docs = [r.asDict(recursive=True) for r in frame.collect()]
+        if not docs:
+            raise ValueError(f"MongoDB collection '{collection}' returned no documents; refusing to continue")
+
+        rows = documents_to_rows(docs, columns, types)
+        new = changed_rows(rows, _latest_existing(spark, target, id_field), id_field, columns)
+        if metrics is not None:
+            metrics["rows_in"], metrics["rows_out"] = len(rows), len(new)
+        if new:
+            (spark.createDataFrame(new, schema=ddl)
+             .withColumn("_ingested_at", F.current_timestamp())
+             .write.mode("append").option("mergeSchema", "true").saveAsTable(target))
+        return len(new)
 
     if audit is None:
         return _run()
     with audit.track("bronze", f"mongo.{collection}") as metrics:
-        n = _run()
-        metrics["rows_in"] = metrics["rows_out"] = n
-        return n
+        return _run(metrics)

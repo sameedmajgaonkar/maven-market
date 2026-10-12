@@ -72,6 +72,24 @@ def table_fqn(cfg: dict, layer: str, key: str) -> str:
     return f"{get(cfg, 'catalog')}.{get(cfg, f'schemas.{layer}')}.{table}"
 
 
+def bronze_fqn(cfg: dict, name: str) -> str:
+    """Fully qualified Bronze table for a dataset name, wherever it is ingested from.
+
+    Looks in CSV ``sources``, MongoDB ``mongo.collections`` and Kafka ``kafka.topics``; a name must
+    resolve to exactly one of them (a table has a single writer).
+    """
+    homes = [
+        spec[name]["bronze_table"]
+        for spec in (cfg.get("sources", {}), get(cfg, "mongo.collections"), get(cfg, "kafka.topics"))
+        if name in spec
+    ]
+    if not homes:
+        raise KeyError(f"'{name}' is not a configured csv source, mongo collection or kafka topic")
+    if len(homes) > 1:
+        raise ValueError(f"'{name}' is defined by more than one ingestion source: {homes}")
+    return f"{get(cfg, 'catalog')}.{homes[0]}"
+
+
 def load_expectations(config_dir: str | Path | None = None) -> dict:
     """Load ``expectations.yml``: per-table data-quality rules grouped by action (warn/drop/fail)."""
     path = (Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR) / "expectations.yml"

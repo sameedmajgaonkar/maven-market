@@ -13,19 +13,17 @@ Gold: ``GOLD_SQL`` - conformed dimensions, facts and BI aggregates (read Silver/
 """
 from __future__ import annotations
 
-from maven_market.config import get, table_fqn
+from maven_market.config import bronze_fqn, get, table_fqn
 
 
 # ----------------------------------------------------------------------------- name resolution
 
 def names(cfg: dict) -> dict:
     """Placeholder -> fully qualified table name, for every bronze/silver/gold dataset."""
-    catalog = get(cfg, "catalog")
     out = {}
-    for source, spec in get(cfg, "sources").items():
-        out[f"bronze_{source}"] = f"{catalog}.{spec['bronze_table']}"
-    for topic, spec in get(cfg, "kafka.topics").items():
-        out[f"bronze_{topic}"] = f"{catalog}.{spec['bronze_table']}"
+    for group in ("sources", "mongo.collections", "kafka.topics"):
+        for dataset in get(cfg, group):
+            out[f"bronze_{dataset}"] = bronze_fqn(cfg, dataset)
     for layer in ("silver", "gold"):
         for key in get(cfg, f"pipeline.{layer}"):
             out[f"{layer}_{key}"] = table_fqn(cfg, layer, key)
@@ -52,13 +50,15 @@ def render(template: str, cfg: dict) -> str:
 
 # Applied with DataFrame.selectExpr to a streaming read of the Bronze table. NB: no backslashes in
 # regexes (Spark SQL string-literal escaping differs from Python) - hence the [$] character class.
-_LINEAGE = ["_source_file_modified_at", "_ingested_at"]
+# customers/products come from MongoDB, so there is no source file: ordering of changes is by the
+# time Bronze ingested each document version.
+_LINEAGE = ["_ingested_at"]
 
 SCD2_SOURCES = {
     "dim_customer": {
         "bronze": "customers",
         "keys": ["customer_id"],
-        "sequence_by": "_source_file_modified_at",
+        "sequence_by": "_ingested_at",
         "exprs": [
             "customer_id",
             "customer_acct_num",
@@ -89,7 +89,7 @@ SCD2_SOURCES = {
     "dim_product": {
         "bronze": "products",
         "keys": ["product_id"],
-        "sequence_by": "_source_file_modified_at",
+        "sequence_by": "_ingested_at",
         "exprs": [
             "product_id",
             "trim(product_brand) AS product_brand",

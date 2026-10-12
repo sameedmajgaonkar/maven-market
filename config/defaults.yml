@@ -27,9 +27,9 @@ audit:
   table: audit.audit_logs
 
 # Batch CSV sources -> Bronze. 'path' is relative to storage.landing_root.
+# NOTE: customers and products are NOT here - they come from MongoDB (see `mongo:` below), which is
+# the only writer of bronze.customers / bronze.products. A table must have exactly one writer.
 sources:
-  customers: {path: customers,    bronze_table: bronze.customers,    format: csv}
-  products:  {path: products,     bronze_table: bronze.products,     format: csv}
   stores:    {path: stores,       bronze_table: bronze.stores,       format: csv}
   regions:   {path: regions,      bronze_table: bronze.regions,      format: csv}
   returns:   {path: returns,      bronze_table: bronze.returns,      format: csv}
@@ -116,9 +116,9 @@ pipeline:
   # Columns that must not create a new SCD2 version when they change (lineage/housekeeping)
   scd2_ignore_columns: [_rescued_data, _source_file_path, _source_file_name, _source_file_modified_at, _ingested_at]
 
-# NoSQL source (MongoDB Atlas) -> Bronze
-# The capstone's NoSQL source is the PRODUCT MASTER. Seeded from the products CSV by
-# `python -m maven_market.producers.mongo_seed`, then ingested snapshot-style into Bronze.
+# NoSQL source (MongoDB Atlas) -> Bronze: the master data (customers + products).
+# Seeded from the CSVs by `python -m maven_market.producers.mongo_seed`, then ingested into Bronze.
+# Append-only, like the other Bronze tables: only NEW or CHANGED documents are appended each run.
 mongo:
   # pymongo: pure Python, works on serverless.  spark_connector: MongoDB Spark Connector v10.x,
   # needs a Dedicated (single-user) classic cluster with the Maven library installed.
@@ -129,14 +129,14 @@ mongo:
     # Collection name == key in producer.key_files (the CSV the seed script loads it from).
     # `schema` drives seeding (CSV -> typed document), reading (DataFrame schema) and column projection.
     products:
-      bronze_table: bronze.products_mongo
+      bronze_table: bronze.products
       id_field: product_id
       schema: >-
         _id STRING, product_id INT, product_brand STRING, product_name STRING, product_sku LONG,
         product_retail_price DOUBLE, product_cost DOUBLE, product_weight DOUBLE,
         recyclable INT, low_fat INT
     customers:
-      bronze_table: bronze.customers_mongo
+      bronze_table: bronze.customers
       id_field: customer_id
       schema: >-
         _id STRING, customer_id INT, customer_acct_num LONG, first_name STRING, last_name STRING,

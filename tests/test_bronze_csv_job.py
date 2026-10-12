@@ -16,8 +16,8 @@ def test_parse_args_defaults_to_dev_and_all_sources():
 
 
 def test_parse_args_explicit():
-    a = parse_args(["--env", "prod", "--config-dir", "/x/config", "--sources", "customers,stores"])
-    assert (a.env, a.config_dir, a.sources) == ("prod", "/x/config", ["customers", "stores"])
+    a = parse_args(["--env", "prod", "--config-dir", "/x/config", "--sources", "regions,stores"])
+    assert (a.env, a.config_dir, a.sources) == ("prod", "/x/config", ["regions", "stores"])
 
 
 def test_select_sources_defaults_to_every_csv_source(cfg):
@@ -25,12 +25,19 @@ def test_select_sources_defaults_to_every_csv_source(cfg):
 
 
 def test_select_sources_subset_preserves_request(cfg):
-    assert select_sources(cfg, ["stores", "customers"]) == ["stores", "customers"]
+    assert select_sources(cfg, ["stores", "regions"]) == ["stores", "regions"]
+
+
+def test_customers_and_products_are_not_csv_sources(cfg):
+    # they are ingested from MongoDB; the CSV job must not also write bronze.customers/products
+    assert "customers" not in select_sources(cfg, None) and "products" not in select_sources(cfg, None)
+    with pytest.raises(KeyError):
+        select_sources(cfg, ["customers"])
 
 
 def test_select_sources_unknown_raises(cfg):
     with pytest.raises(KeyError):
-        select_sources(cfg, ["customers", "nope"])
+        select_sources(cfg, ["stores", "nope"])
 
 
 def test_audit_table_is_fully_qualified_from_config(cfg):

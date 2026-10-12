@@ -64,11 +64,12 @@ def test_data_region_expr_rejects_quotes_in_config(cfg):
 
 def test_scd2_sources_have_keys_and_sequence_column_in_exprs():
     for name, spec in T.SCD2_SOURCES.items():
-        assert spec["keys"] and spec["sequence_by"] == "_source_file_modified_at"
+        # master data comes from MongoDB (no source file): changes are ordered by Bronze ingest time
+        assert spec["keys"] and spec["sequence_by"] == "_ingested_at"
         joined = " ".join(spec["exprs"])
         for key in spec["keys"]:
             assert key in joined
-        assert "_source_file_modified_at" in joined
+        assert spec["sequence_by"] in joined
 
 
 def test_output_columns_handles_aliases_and_bare_columns():
@@ -80,7 +81,7 @@ def test_scd2_history_ignore_list_only_names_real_output_columns(cfg):
     for name, spec in T.SCD2_SOURCES.items():
         ignore = T.scd2_ignore_columns(cfg, name)
         assert set(ignore) <= set(T.output_columns(spec["exprs"]))
-        assert "_source_file_modified_at" in ignore  # the sequence column must never create versions
+        assert spec["sequence_by"] in ignore        # the sequence column must never create versions
         assert "_rescued_data" not in ignore        # not selected, so must not be listed
         assert not set(ignore) & set(spec["keys"])
 
@@ -88,6 +89,14 @@ def test_scd2_history_ignore_list_only_names_real_output_columns(cfg):
 def test_scd2_ignore_columns_include_lineage_and_sequence(cfg):
     ignore = set(cfg["pipeline"]["scd2_ignore_columns"])
     assert {"_source_file_modified_at", "_ingested_at", "_rescued_data"} <= ignore
+
+
+def test_scd2_dims_read_the_mongo_owned_unsuffixed_bronze_tables(cfg):
+    n = T.names(cfg)
+    assert n["bronze_customers"] == "maven_market_uc.bronze.customers"
+    assert n["bronze_products"] == "maven_market_uc.bronze.products"
+    assert T.SCD2_SOURCES["dim_customer"]["bronze"] == "customers"
+    assert T.SCD2_SOURCES["dim_product"]["bronze"] == "products"
 
 
 def test_expectation_columns_exist_in_silver_outputs():

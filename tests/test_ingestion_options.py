@@ -23,7 +23,7 @@ def cfg():
 # ---- Auto Loader (Review Focus #2: schema drift must not fail the stream) ----
 
 def test_autoloader_has_required_options(cfg):
-    o = autoloader_options(cfg, "customers")
+    o = autoloader_options(cfg, "stores")
     assert o["cloudFiles.format"] == "csv"
     assert o["cloudFiles.inferColumnTypes"] == "true"      # else every column is a string
     assert o["cloudFiles.schemaEvolutionMode"] == "rescue"  # drift -> rescued column, no failure
@@ -33,11 +33,11 @@ def test_autoloader_has_required_options(cfg):
 
 
 def test_autoloader_schema_location_is_per_source_and_under_landing(cfg):
-    a = autoloader_options(cfg, "customers")["cloudFiles.schemaLocation"]
-    b = autoloader_options(cfg, "products")["cloudFiles.schemaLocation"]
+    a = autoloader_options(cfg, "stores")["cloudFiles.schemaLocation"]
+    b = autoloader_options(cfg, "regions")["cloudFiles.schemaLocation"]
     assert a != b
     assert a.startswith(cfg["storage"]["landing_root"])
-    assert a.endswith("/customers")
+    assert a.endswith("/stores")
 
 
 def test_paths_and_tables_come_from_config(cfg):

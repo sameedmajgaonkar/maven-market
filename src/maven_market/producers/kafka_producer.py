@@ -122,12 +122,17 @@ def parse_job_args(argv: list[str] | None) -> argparse.Namespace:
 
 def load_keys_from_bronze(spark, cfg: dict) -> EventKeys:  # pragma: no cover - needs Spark
     """Read the real keys from the Bronze dimension tables (the job-mode source)."""
-    def table(src: str) -> str:
-        return f"{cfg['catalog']}.{cfg['sources'][src]['bronze_table']}"
+    from maven_market.config import bronze_fqn
+
+    def table(name: str) -> str:
+        return bronze_fqn(cfg, name)
 
     customers = [r[0] for r in spark.table(table("customers")).select("customer_id").distinct().collect()]
-    products = [tuple(r) for r in spark.table(table("products")).select(
-        "product_id", "product_retail_price").distinct().collect()]
+    # Mongo Bronze is append-only, so a product can have several versions: use the latest price
+    products = [tuple(r) for r in spark.sql(
+        f"SELECT product_id, product_retail_price FROM (SELECT *, row_number() OVER "
+        f"(PARTITION BY product_id ORDER BY _ingested_at DESC) AS _rn FROM {table('products')}) WHERE _rn = 1"
+    ).collect()]
     stores = [r[0] for r in spark.table(table("stores")).select("store_id").distinct().collect()]
     return keys_from_rows(customers, products, stores)
 

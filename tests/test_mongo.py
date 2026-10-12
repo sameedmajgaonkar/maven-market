@@ -4,7 +4,9 @@ from datetime import date, datetime
 import pytest
 
 from maven_market.config import load_config
+from maven_market.config import bronze_fqn
 from maven_market.ingestion.mongo_ingest import (
+    changed_rows,
     documents_to_rows,
     method,
     mongo_options,
@@ -42,6 +44,26 @@ def test_every_collection_has_schema_table_id_field_and_a_csv_source(cfg):
 
 def test_both_master_collections_are_configured(cfg):
     assert set(cfg["mongo"]["collections"]) == {"products", "customers"}
+
+
+def test_every_bronze_table_has_exactly_one_writer(cfg):
+    """Mongo owns bronze.customers / bronze.products (no suffix), so the CSV list must not also write
+    them: two writers on one table corrupt each other's checkpoints/streams."""
+    writers = (
+        [("csv", s["bronze_table"]) for s in cfg["sources"].values()]
+        + [("mongo", s["bronze_table"]) for s in cfg["mongo"]["collections"].values()]
+        + [("kafka", t["bronze_table"]) for t in cfg["kafka"]["topics"].values()]
+        + [("kafka-dead-letter", t["dead_letter_table"]) for t in cfg["kafka"]["topics"].values()]
+    )
+    tables = [table for _, table in writers]
+    duplicated = {t for t in tables if tables.count(t) > 1}
+    assert not duplicated, f"tables with more than one writer: {duplicated}"
+
+
+def test_mongo_owns_the_unsuffixed_master_tables(cfg):
+    assert cfg["mongo"]["collections"]["customers"]["bronze_table"] == "bronze.customers"
+    assert cfg["mongo"]["collections"]["products"]["bronze_table"] == "bronze.products"
+    assert "customers" not in cfg["sources"] and "products" not in cfg["sources"]
 
 
 # ---- seed documents: CSV row -> typed Mongo document, driven by the schema ----
@@ -111,6 +133,63 @@ def test_documents_to_rows_extra_unknown_field_dropped(cfg):
     ddl = _schema(cfg, "products")
     rows = documents_to_rows([{"_id": 1, "product_id": 1, "surprise": "x"}], schema_columns(ddl), schema_types(ddl))
     assert "surprise" not in rows[0]
+
+
+# ---- new/changed detection (append-only Bronze, only real changes appended) ----
+
+COLS = ["_id", "customer_id", "member_card", "yearly_income"]
+V1 = {"_id": "a", "customer_id": 1, "member_card": "Bronze", "yearly_income": "$30K - $50K"}
+
+
+def test_changed_rows_first_load_appends_everything():
+    rows = [V1, {**V1, "_id": "b", "customer_id": 2}]
+    assert changed_rows(rows, {}, "customer_id", COLS) == rows
+
+
+def test_changed_rows_unchanged_snapshot_appends_nothing():
+    assert changed_rows([V1], {1: dict(V1)}, "customer_id", COLS) == []
+
+
+def test_changed_rows_detects_a_changed_field():
+    v2 = {**V1, "member_card": "Golden"}
+    assert changed_rows([v2], {1: dict(V1)}, "customer_id", COLS) == [v2]
+
+
+def test_changed_rows_detects_a_new_id_among_unchanged_ones():
+    new = {**V1, "_id": "z", "customer_id": 9}
+    assert changed_rows([V1, new], {1: dict(V1)}, "customer_id", COLS) == [new]
+
+
+def test_changed_rows_ignores_mongo_id_and_housekeeping_columns_in_comparison():
+    stored = {**V1, "_id": "DIFFERENT", "_ingested_at": "2026-01-01"}  # extra Bronze-only column
+    assert changed_rows([V1], {1: stored}, "customer_id", COLS) == []
+
+
+def test_changed_rows_treats_a_revert_to_an_old_value_as_a_change():
+    # latest stored is Golden; source went back to Bronze -> that IS a change
+    latest = {**V1, "member_card": "Golden"}
+    assert changed_rows([V1], {1: latest}, "customer_id", COLS) == [V1]
+
+
+def test_changed_rows_null_vs_value_is_a_change():
+    assert changed_rows([{**V1, "member_card": None}], {1: dict(V1)}, "customer_id", COLS)
+    assert not changed_rows([{**V1, "member_card": None}], {1: {**V1, "member_card": None}}, "customer_id", COLS)
+
+
+# ---- bronze_fqn: one dataset name -> exactly one ingestion source ----
+
+def test_bronze_fqn_resolves_across_csv_mongo_and_kafka(cfg):
+    assert bronze_fqn(cfg, "stores") == "maven_market_uc.bronze.stores"           # csv
+    assert bronze_fqn(cfg, "customers") == "maven_market_uc.bronze.customers"     # mongo
+    assert bronze_fqn(cfg, "orders") == "maven_market_uc.bronze.orders"           # kafka
+    with pytest.raises(KeyError):
+        bronze_fqn(cfg, "nope")
+
+
+def test_bronze_fqn_rejects_a_name_defined_by_two_sources(cfg):
+    clash = {**cfg, "sources": {**cfg["sources"], "customers": {"bronze_table": "bronze.customers"}}}
+    with pytest.raises(ValueError):
+        bronze_fqn(clash, "customers")
 
 
 # ---- method switch / options ----

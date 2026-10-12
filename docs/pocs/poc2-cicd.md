@@ -79,7 +79,7 @@ Optional: **Settings -> Branches -> add rule for `main`** requiring the `Lint an
 4. Merge. Show the push-to-main run: `deploy-prod` deploys the bundle.
 5. In the workspace, show the prod jobs/pipeline created by the service principal.
 
-Actions run link: _add after the first run_.
+Actions run link: https://github.com/sameedmajgaonkar/maven-market/actions/runs/38306674680.
 
 ## Known limitation
 `dev` and `prod` share one workspace and one catalog here, so a **prod pipeline would write the same

@@ -81,10 +81,10 @@ def test_kafka_secret_values_never_in_config(cfg):
 # ---- MongoDB ----
 
 def test_mongo_options(cfg):
-    o = mongo_options(cfg, "mongodb+srv://u:p@c.mongodb.net/", "product_reviews")
+    o = mongo_options(cfg, "mongodb+srv://u:p@c.mongodb.net/", "products")
     assert o["connection.uri"].startswith("mongodb+srv://")
     assert o["database"] == "maven_market"
-    assert o["collection"] == "product_reviews"
+    assert o["collection"] == "products"
 
 
 def test_mongo_unknown_collection_raises(cfg):

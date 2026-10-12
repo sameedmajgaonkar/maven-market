@@ -54,6 +54,24 @@ resources:
             dependencies:
               - ../dist/*.whl
 
+    bronze_mongo_ingest:
+      name: maven_market_bronze_mongo_ingest
+      description: Snapshot the MongoDB Atlas product master into Bronze (pymongo, serverless-safe)
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: ingest_mongo
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: bronze_mongo
+            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config"]
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - ../dist/*.whl
+
     kafka_producer:
       name: maven_market_kafka_producer
       description: Simulate orders + inventory events into Confluent Kafka (keys from Bronze dimensions)

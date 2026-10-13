@@ -61,6 +61,8 @@ REGION_COLUMN_TABLES = [
 ]
 REGION_COLUMN = "data_region"
 REQUIRED_GOLD_TAGS = ["owner_team", "data_sensitivity"]
+# Every governed tag key the tagging plan writes. The identity that runs the job needs ASSIGN on each.
+GOVERNED_TAGS_SET_BY_JOB = ["owner_team", "data_sensitivity", "region_code", "classification"]
 
 
 def tag_assignment_statements(cfg: dict) -> list[str]:

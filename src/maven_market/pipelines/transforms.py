@@ -275,9 +275,12 @@ GOLD_SQL = {
         "FROM {silver_orders} o LEFT JOIN {gold_dim_store} s ON o.store_id = s.store_id"
     ),
     "fact_inventory": (
+        "SELECT i.product_id, i.store_id, s.sales_region, s.store_country, s.data_region, "
+        "i.quantity_on_hand, i.event_ts FROM ("
         "SELECT product_id, store_id, quantity_on_hand, event_ts FROM ("
         "SELECT *, row_number() OVER (PARTITION BY product_id, store_id ORDER BY event_ts DESC) AS _rn "
-        "FROM {silver_inventory}) WHERE _rn = 1"
+        "FROM {silver_inventory}) WHERE _rn = 1) i "
+        "LEFT JOIN {gold_dim_store} s ON i.store_id = s.store_id"
     ),
     "agg_sales_monthly": (
         "SELECT date_trunc('month', transaction_date) AS month, year(transaction_date) AS year, "
@@ -286,15 +289,16 @@ GOLD_SQL = {
         "count(DISTINCT customer_id) AS customers "
         "FROM {gold_fact_sales} GROUP BY 1, 2, 3, 4, 5"
     ),
+    # Per product AND region, so a regional manager never sees another region's totals.
     "agg_product_performance": (
-        "SELECT p.product_id, p.product_brand, p.product_name, coalesce(s.units, 0) AS units_sold, "
-        "coalesce(s.revenue, 0) AS revenue, coalesce(s.profit, 0) AS profit, "
-        "coalesce(r.units, 0) AS units_returned, coalesce(r.units, 0) / nullif(s.units, 0) AS return_rate "
-        "FROM {gold_dim_product} p "
-        "LEFT JOIN (SELECT product_id, sum(quantity) AS units, sum(revenue) AS revenue, sum(profit) AS profit "
-        "FROM {gold_fact_sales} GROUP BY product_id) s ON p.product_id = s.product_id "
-        "LEFT JOIN (SELECT product_id, sum(quantity) AS units FROM {gold_fact_returns} GROUP BY product_id) r "
-        "ON p.product_id = r.product_id"
+        "SELECT s.product_id, p.product_brand, p.product_name, s.data_region, s.units AS units_sold, "
+        "s.revenue, s.profit, coalesce(r.units, 0) AS units_returned, "
+        "coalesce(r.units, 0) / nullif(s.units, 0) AS return_rate "
+        "FROM (SELECT product_id, data_region, sum(quantity) AS units, sum(revenue) AS revenue, "
+        "sum(profit) AS profit FROM {gold_fact_sales} GROUP BY product_id, data_region) s "
+        "LEFT JOIN {gold_dim_product} p ON s.product_id = p.product_id "
+        "LEFT JOIN (SELECT product_id, data_region, sum(quantity) AS units FROM {gold_fact_returns} "
+        "GROUP BY product_id, data_region) r ON s.product_id = r.product_id AND s.data_region = r.data_region"
     ),
     "agg_store_performance": (
         "SELECT st.store_id, st.store_name, st.store_type, st.sales_region, st.store_country, st.data_region, "
@@ -305,24 +309,24 @@ GOLD_SQL = {
         "FROM {gold_fact_sales} GROUP BY store_id) s ON st.store_id = s.store_id"
     ),
     "agg_customer_segments": (
-        "SELECT c.member_card, c.yearly_income, c.is_homeowner, c.customer_country, "
+        "SELECT f.data_region, c.member_card, c.yearly_income, c.is_homeowner, c.customer_country, "
         "count(DISTINCT c.customer_id) AS customers, sum(f.quantity) AS units, sum(f.revenue) AS revenue, "
         "sum(f.profit) AS profit "
         "FROM {gold_fact_sales} f JOIN {gold_dim_customer} c ON f.customer_id = c.customer_id "
-        "GROUP BY 1, 2, 3, 4"
+        "GROUP BY 1, 2, 3, 4, 5"
     ),
     "agg_orders_realtime": (
         "SELECT timestamp_seconds(floor(unix_timestamp(order_ts) / 300) * 300) AS window_start, "
-        "sales_region, count(*) AS orders, sum(quantity) AS units, sum(revenue) AS revenue "
-        "FROM {gold_fact_orders} GROUP BY 1, 2"
+        "data_region, sales_region, count(*) AS orders, sum(quantity) AS units, sum(revenue) AS revenue "
+        "FROM {gold_fact_orders} GROUP BY 1, 2, 3"
     ),
     "agg_inventory_turns": (
-        "SELECT p.product_id, p.product_brand, p.product_name, coalesce(s.units, 0) AS units_sold, "
-        "coalesce(i.on_hand, 0) AS units_on_hand, coalesce(s.units, 0) / nullif(i.on_hand, 0) AS inventory_turns "
-        "FROM {gold_dim_product} p "
-        "LEFT JOIN (SELECT product_id, sum(quantity) AS units FROM {gold_fact_sales} GROUP BY product_id) s "
-        "ON p.product_id = s.product_id "
-        "LEFT JOIN (SELECT product_id, sum(quantity_on_hand) AS on_hand FROM {gold_fact_inventory} "
-        "GROUP BY product_id) i ON p.product_id = i.product_id"
+        "SELECT s.product_id, p.product_brand, p.product_name, s.data_region, s.units AS units_sold, "
+        "coalesce(i.on_hand, 0) AS units_on_hand, s.units / nullif(i.on_hand, 0) AS inventory_turns "
+        "FROM (SELECT product_id, data_region, sum(quantity) AS units FROM {gold_fact_sales} "
+        "GROUP BY product_id, data_region) s "
+        "LEFT JOIN {gold_dim_product} p ON s.product_id = p.product_id "
+        "LEFT JOIN (SELECT product_id, data_region, sum(quantity_on_hand) AS on_hand FROM {gold_fact_inventory} "
+        "GROUP BY product_id, data_region) i ON s.product_id = i.product_id AND s.data_region = i.data_region"
     ),
 }

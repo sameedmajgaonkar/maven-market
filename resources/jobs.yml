@@ -47,6 +47,34 @@ resources:
             - task_key: ingest_kafka
           pipeline_task:
             pipeline_id: ${resources.pipelines.silver_gold.id}
+        # A refresh can recreate a table and drop its tags: re-apply them, then fail the run if any
+        # gold table is still missing owner_team / data_sensitivity (the structural rule).
+        - task_key: govern
+          depends_on:
+            - task_key: refresh_silver_gold
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: governance
+            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config", "--action", "refresh"]
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+            dependencies:
+              - ../dist/*.whl
+
+    governance_bootstrap:
+      name: maven_market_governance_bootstrap
+      description: Create/replace the ABAC policies (mask, region row filter, gold structural rule), apply tags, run the gate
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: bootstrap
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: governance
+            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config", "--action", "bootstrap"]
       environments:
         - environment_key: default
           spec:

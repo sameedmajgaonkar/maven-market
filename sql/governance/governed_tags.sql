@@ -1,22 +1,36 @@
--- T4.1: governed tag taxonomy (Public Preview). Run as a metastore/account admin.
--- Governed tags are value-constrained and have their own CREATE/MANAGE/ASSIGN privileges.
--- Syntax follows the project plan (Phase 4); verify against current docs when first executed.
+-- Governed tag taxonomy (Public Preview). Run as an account / metastore admin.
+-- Governed tags are value-constrained and have their own CREATE / MANAGE / ASSIGN privileges.
+-- Verified against a live workspace: each statement below executes as written.
 
+-- ---- Data classification: drives the single PII column-mask policy -------------------------
 CREATE GOVERNED TAG classification
   DESCRIPTION 'Data sensitivity class used by ABAC masking policies'
   VALUES ('PII', 'Financial', 'Public');
 
+-- ---- Region vocabulary used by the row-level policy and the user_region_mapping table --------
 CREATE GOVERNED TAG data_region
   DESCRIPTION 'Geographic region the data belongs to; drives row-level filtering'
   VALUES ('EU', 'NA', 'APAC');
 
--- Control tag for the secure-by-default pattern (Phase 9, T9.3):
--- new tables are tagged review_status=pending and masked until a steward sets 'reviewed'.
+-- Key-only tag: marks the COLUMN that carries each row's region code (EU/NA/APAC). A policy can only
+-- find columns through tags, never by name, and a column cannot carry one fixed data_region value
+-- because a fact table holds rows from every region.
+CREATE GOVERNED TAG region_code
+  DESCRIPTION 'Marks the column holding a row region code (EU/NA/APAC); drives the row filter';
+
+-- ---- Structural rule: every gold table must declare an owner and a sensitivity -----------------
+CREATE GOVERNED TAG owner_team
+  DESCRIPTION 'Team accountable for the data product'
+  VALUES ('data_platform', 'analytics', 'compliance', 'regional_sales');
+
+CREATE GOVERNED TAG data_sensitivity
+  DESCRIPTION 'Business sensitivity of the table'
+  VALUES ('public', 'internal', 'confidential', 'restricted');
+
+-- ---- Secure-by-default control tag ------------------------------------------------------------
 CREATE GOVERNED TAG review_status
   DESCRIPTION 'Steward review state; pending objects are masked by default'
   VALUES ('pending', 'reviewed');
 
--- T4.3: split of duties. Admins keep CREATE/MANAGE; stewards may only ASSIGN.
--- GRANT ASSIGN ON GOVERNED TAG classification   TO `data_steward`;
--- GRANT ASSIGN ON GOVERNED TAG data_region      TO `data_steward`;
--- GRANT ASSIGN ON GOVERNED TAG review_status    TO `data_steward`;
+-- Split of duties (optional, once a steward group exists): admins keep CREATE/MANAGE, stewards only ASSIGN.
+-- GRANT ASSIGN ON GOVERNED TAG classification TO `data_steward`;

@@ -112,7 +112,22 @@ pipeline:
     agg_orders_realtime: agg_orders_realtime
     agg_inventory_turns: agg_inventory_turns
   # Country -> governed `data_region` tag value (drives Phase 9 row-level security)
-  data_region_by_country: {USA: NA, Canada: NA, Mexico: NA}
+  # Source data is North America; the EU / APAC stores come from the SYNTHETIC_* expansion files.
+  data_region_by_country:
+    USA: NA
+    Canada: NA
+    Mexico: NA
+    Germany: EU
+    France: EU
+    Spain: EU
+    Italy: EU
+    Netherlands: EU
+    Sweden: EU
+    Japan: APAC
+    South Korea: APAC
+    Australia: APAC
+    Singapore: APAC
+    India: APAC
   # Columns that must not create a new SCD2 version when they change (lineage/housekeeping)
   scd2_ignore_columns: [_rescued_data, _source_file_path, _source_file_name, _source_file_modified_at, _ingested_at]
 

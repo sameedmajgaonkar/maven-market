@@ -106,6 +106,34 @@ def test_data_region_expr_is_built_from_config_and_null_safe(cfg):
     assert "'Canada'" in expr and "'NA'" in expr and "'UNKNOWN'" in expr
 
 
+SYNTHETIC_COUNTRIES = {
+    "EU": {"Germany", "France", "Spain", "Italy", "Netherlands", "Sweden"},
+    "APAC": {"Japan", "South Korea", "Australia", "Singapore", "India"},
+}
+
+
+def test_data_region_values_are_legal_governed_tag_values(cfg):
+    # the governed tag `data_region` only allows these values (sql/governance/governed_tags.sql)
+    assert set(cfg["pipeline"]["data_region_by_country"].values()) <= {"EU", "NA", "APAC"}
+
+
+def test_every_store_country_in_the_source_and_synthetic_files_is_mapped(cfg):
+    """An unmapped country silently becomes data_region='UNKNOWN', which the row filter would hide."""
+    mapping = cfg["pipeline"]["data_region_by_country"]
+    for country in ("USA", "Canada", "Mexico"):
+        assert mapping[country] == "NA"
+    for region, countries in SYNTHETIC_COUNTRIES.items():
+        for country in countries:
+            assert mapping.get(country) == region, f"{country} must map to {region}"
+
+
+def test_data_region_expr_maps_every_configured_country_and_defaults_to_unknown(cfg):
+    expr = T.data_region_expr(cfg, "s.store_country")
+    for country, region in cfg["pipeline"]["data_region_by_country"].items():
+        assert f"'{country}', '{region}'" in expr
+    assert expr.endswith("'UNKNOWN')")
+
+
 def test_data_region_expr_rejects_quotes_in_config(cfg):
     bad = {**cfg, "pipeline": {**cfg["pipeline"], "data_region_by_country": {"U'SA": "NA"}}}
     with pytest.raises(ValueError):

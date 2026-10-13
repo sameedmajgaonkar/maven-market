@@ -61,7 +61,7 @@ Deploying alone needs far less; these let the service principal also *run* the p
 
 ### 4. GitHub configuration
 ```bash
-gh variable set DATABRICKS_HOST --body "https://adb-7405609670305807.7.azuredatabricks.net"
+gh variable set DATABRICKS_HOST --body "https://adb-7405608768245041.1.azuredatabricks.net"
 ```
 Then in the repo: **Settings -> Environments -> New environment -> `prod`** and add the environment
 secret `DATABRICKS_CLIENT_ID` = the service principal's application (client) ID.

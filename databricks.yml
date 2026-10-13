@@ -46,7 +46,7 @@ targets:
       env: dev
     workspace:
       # Replace with your dev workspace URL (or set DATABRICKS_HOST and remove this line).
-      host: https://adb-7405609670305807.7.azuredatabricks.net
+      host: https://adb-7405608768245041.1.azuredatabricks.net
 
   prod:
     mode: production
@@ -54,7 +54,7 @@ targets:
       env: prod
     workspace:
       # Replace with your prod workspace URL.
-      host: https://adb-7405609670305807.7.azuredatabricks.net
+      host: https://adb-7405608768245041.1.azuredatabricks.net
       # production mode requires an explicit root_path outside any user's home
       root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
     # run_as: {service_principal_name: <deploy-sp-application-id>}  # set in Phase 8 (T8.3)

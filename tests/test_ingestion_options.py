@@ -5,14 +5,8 @@ These pin the Databricks gotchas called out in the plan so a refactor can't sile
 import pytest
 
 from maven_market.config import load_config
-from maven_market.ingestion.autoloader import (
-    autoloader_options,
-    bronze_table,
-    checkpoint_path,
-    source_path,
-)
+from maven_market.ingestion.autoloader import autoloader_options, source_path
 from maven_market.ingestion.kafka_stream import kafka_options, topic_settings
-from maven_market.ingestion.mongo_ingest import mongo_options
 
 
 @pytest.fixture(scope="module")
@@ -32,18 +26,15 @@ def test_autoloader_has_required_options(cfg):
     assert o["header"] == "true"
 
 
-def test_autoloader_schema_location_is_per_source_and_under_landing(cfg):
-    a = autoloader_options(cfg, "stores")["cloudFiles.schemaLocation"]
-    b = autoloader_options(cfg, "regions")["cloudFiles.schemaLocation"]
-    assert a != b
-    assert a.startswith(cfg["storage"]["landing_root"])
-    assert a.endswith("/stores")
+def test_pipeline_owns_the_schema_location_and_checkpoint(cfg):
+    """Inside a pipeline the checkpoint and inferred-schema location are managed for us: setting them again
+    would reuse stale state left behind by the old standalone jobs."""
+    o = autoloader_options(cfg, "stores")
+    assert "cloudFiles.schemaLocation" not in o and "checkpointLocation" not in o
 
 
-def test_paths_and_tables_come_from_config(cfg):
+def test_paths_come_from_config(cfg):
     assert source_path(cfg, "transactions") == cfg["storage"]["landing_root"] + "/transactions"
-    assert bronze_table(cfg, "transactions") == "maven_market_uc.bronze.transactions"
-    assert checkpoint_path(cfg, "transactions").endswith("/transactions")
 
 
 def test_unknown_source_raises(cfg):
@@ -76,17 +67,3 @@ def test_kafka_topic_settings_have_schema_and_required_keys(cfg):
 
 def test_kafka_secret_values_never_in_config(cfg):
     assert "SECRET" not in str(cfg) and cfg["kafka"]["secrets"]["api_secret"] == "confluent-api-secret"
-
-
-# ---- MongoDB ----
-
-def test_mongo_options(cfg):
-    o = mongo_options(cfg, "mongodb+srv://u:p@c.mongodb.net/", "products")
-    assert o["connection.uri"].startswith("mongodb+srv://")
-    assert o["database"] == "maven_market"
-    assert o["collection"] == "products"
-
-
-def test_mongo_unknown_collection_raises(cfg):
-    with pytest.raises(KeyError):
-        mongo_options(cfg, "mongodb+srv://x", "nope")

@@ -14,9 +14,8 @@ dependencies = [
 ]
 
 [project.scripts]
-bronze_csv = "maven_market.jobs.bronze_csv:main"
-bronze_kafka = "maven_market.jobs.bronze_kafka:main"
-bronze_mongo = "maven_market.jobs.bronze_mongo:main"
+governance = "maven_market.jobs.governance:main"
+pipeline_audit = "maven_market.jobs.pipeline_audit:main"
 mongo_seed = "maven_market.producers.mongo_seed:main"
 kafka_producer = "maven_market.producers.kafka_producer:main"
 

@@ -1,8 +1,8 @@
-"""CSV -> Bronze via Auto Loader (``cloudFiles``).
+"""CSV -> Bronze via Auto Loader (``cloudFiles``), for the Bronze streaming tables of the pipeline.
 
-Every path, table name and option comes from config; nothing is hardcoded here.
-The option builders are pure functions (unit-tested without Spark); ``read_stream`` /
-``ingest`` are thin Spark wrappers.
+Every path and option comes from config; nothing is hardcoded here. The option builder is a pure function
+(unit-tested without Spark); ``read_stream`` is a thin Spark wrapper. The pipeline owns the checkpoint and
+the inferred-schema location, so neither is configured here.
 """
 from __future__ import annotations
 
@@ -17,22 +17,10 @@ def source_path(cfg: dict, source: str) -> str:
     return f"{_landing(cfg)}/{get(cfg, f'sources.{source}.path')}"
 
 
-def bronze_table(cfg: dict, source: str) -> str:
-    """Fully qualified ``catalog.schema.table`` for a source's Bronze table."""
-    return f"{get(cfg, 'catalog')}.{get(cfg, f'sources.{source}.bronze_table')}"
-
-
-def checkpoint_path(cfg: dict, source: str) -> str:
-    get(cfg, f"sources.{source}")  # fail fast on unknown source
-    return f"{_landing(cfg)}/{get(cfg, 'autoloader.checkpoint_dir')}/{source}"
-
-
 def autoloader_options(cfg: dict, source: str) -> dict:
-    get(cfg, f"sources.{source}")
+    get(cfg, f"sources.{source}")  # fail fast on unknown source
     return {
         "cloudFiles.format": get(cfg, f"sources.{source}.format"),
-        # required by Auto Loader: where the inferred schema is persisted
-        "cloudFiles.schemaLocation": f"{_landing(cfg)}/{get(cfg, 'autoloader.schema_dir')}/{source}",
         # without this every CSV column is a string
         "cloudFiles.inferColumnTypes": str(get(cfg, "autoloader.infer_column_types")).lower(),
         # new/renamed columns are captured in the rescued column instead of failing the stream
@@ -59,25 +47,3 @@ def read_stream(spark, cfg: dict, source: str):  # pragma: no cover - needs Spar
         F.col("_metadata.file_modification_time").alias("_source_file_modified_at"),
         F.current_timestamp().alias("_ingested_at"),
     )
-
-
-def ingest(spark, cfg: dict, source: str, audit=None):  # pragma: no cover - needs Spark
-    """Incrementally load new files for ``source`` into its Bronze table (availableNow)."""
-    def _run():
-        query = (
-            read_stream(spark, cfg, source)
-            .writeStream.option("checkpointLocation", checkpoint_path(cfg, source))
-            .option("mergeSchema", "true")
-            .trigger(availableNow=True)
-            .toTable(bronze_table(cfg, source))
-        )
-        query.awaitTermination()
-        return query
-
-    if audit is None:
-        return _run()
-    with audit.track("bronze", source) as metrics:
-        query = _run()
-        progress = query.recentProgress or []
-        metrics["rows_in"] = metrics["rows_out"] = sum(p.get("numInputRows", 0) for p in progress)
-        return query

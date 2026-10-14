@@ -90,6 +90,11 @@ def bronze_fqn(cfg: dict, name: str) -> str:
     return f"{get(cfg, 'catalog')}.{homes[0]}"
 
 
+def audit_table(cfg: dict) -> str:
+    """Fully qualified audit log table, e.g. ``maven_market_uc.audit.audit_logs``."""
+    return f"{get(cfg, 'catalog')}.{get(cfg, 'audit.table')}"
+
+
 def load_expectations(config_dir: str | Path | None = None) -> dict:
     """Load ``expectations.yml``: per-table data-quality rules grouped by action (warn/drop/fail)."""
     path = (Path(config_dir) if config_dir else _DEFAULT_CONFIG_DIR) / "expectations.yml"

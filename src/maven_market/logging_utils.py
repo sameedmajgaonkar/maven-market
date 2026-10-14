@@ -94,13 +94,17 @@ class AuditLogger:
         start_ts: datetime | None = None,
         error_type: str | None = None,
         traceback_text: str | None = None,
+        end_ts: datetime | None = None,
     ) -> dict:
-        """Log one audit event through the logger (console + audit table) and return the row."""
+        """Log one audit event through the logger (console + audit table) and return the row.
+
+        ``end_ts`` defaults to now; pass it when recording something that already finished (e.g. a pipeline flow).
+        """
         if status not in VALID_STATUSES:
             raise ValueError(f"Invalid status '{status}'; expected one of {sorted(VALID_STATUSES)}")
         metrics = metrics or {}
         level = _LEVELS[status]
-        end_ts = datetime.now(timezone.utc)
+        end_ts = end_ts or datetime.now(timezone.utc)
         if start_ts is None:
             start_ts = end_ts - timedelta(seconds=duration_s) if duration_s is not None else end_ts
         row = {

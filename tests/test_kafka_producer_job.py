@@ -1,37 +1,8 @@
-"""Pure-Python tests for the Kafka producer/ingest job entry points (Spark parts run on Databricks)."""
+"""Pure-Python tests for the Kafka producer job entry point (the Spark parts run on Databricks)."""
 import pytest
 
-from maven_market.config import load_config
-from maven_market.jobs.bronze_kafka import parse_args as ingest_args
-from maven_market.jobs.bronze_kafka import select_topics
 from maven_market.producers.kafka_producer import keys_from_rows
 from maven_market.producers.kafka_producer import parse_job_args as producer_args
-
-
-@pytest.fixture(scope="module")
-def cfg():
-    return load_config("dev")
-
-
-# ---- bronze_kafka job ----
-
-def test_ingest_args_defaults():
-    a = ingest_args([])
-    assert a.env == "dev" and a.config_dir is None and a.topics is None
-
-
-def test_ingest_args_explicit():
-    a = ingest_args(["--env", "prod", "--config-dir", "/c", "--topics", "orders"])
-    assert (a.env, a.config_dir, a.topics) == ("prod", "/c", ["orders"])
-
-
-def test_select_topics_defaults_to_all_configured(cfg):
-    assert set(select_topics(cfg, None)) == {"orders", "inventory"}
-
-
-def test_select_topics_unknown_raises(cfg):
-    with pytest.raises(KeyError):
-        select_topics(cfg, ["orders", "nope"])
 
 
 # ---- producer job ----

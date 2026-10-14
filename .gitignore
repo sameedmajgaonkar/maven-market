@@ -23,8 +23,15 @@ env/
 *.env
 .env
 
+# ---- Real user logins for the region row filter (template: *.seed.example.sql) ----
+sql/governance/*.seed.sql
+
 # ---- Superpowers execution scratch (git-ignored by design) ----
 .superpowers/
+
+# ---- Windows/WSL download artefacts and local session notes ----
+*:Zone.Identifier
+zed-work.md
 
 # ---- Editor / OS / tooling ----
 .claude/
@@ -32,3 +39,5 @@ env/
 .vscode/
 .idea/
 .DS_Store
+
+chat_export.json

@@ -82,6 +82,74 @@ def test_orders_are_enriched_with_product_store_and_customer_attributes(cfg):
         assert column in text
 
 
+# ---- region-governed gold tables (row-level security needs a region column to filter on) ----
+
+REGIONAL_GOLD = [
+    "fact_sales", "fact_returns", "fact_orders", "fact_inventory", "dim_store", "agg_sales_monthly",
+    "agg_store_performance", "agg_orders_realtime", "agg_product_performance", "agg_customer_segments",
+    "agg_inventory_turns",
+]
+REFERENCE_GOLD = ["dim_date", "dim_customer", "dim_product"]   # not regional: shared reference data
+
+
+def test_every_gold_table_is_classified_as_regional_or_reference(cfg):
+    assert set(REGIONAL_GOLD) | set(REFERENCE_GOLD) == set(cfg["pipeline"]["gold"])
+    assert not set(REGIONAL_GOLD) & set(REFERENCE_GOLD)
+
+
+@pytest.mark.parametrize("name", REGIONAL_GOLD)
+def test_regional_gold_tables_output_a_data_region_column(cfg, name):
+    """No regional table may drop the region column, or the row filter has nothing to match."""
+    sql = T.render(T.GOLD_SQL[name], cfg)
+    assert "data_region" in sql, f"gold.{name} must carry data_region"
+
+
+def _group_by_items(sql: str) -> list[str]:
+    """Items of the OUTERMOST final GROUP BY (positions or names)."""
+    tail = sql.rsplit("GROUP BY", 1)[1]
+    return [part.strip() for part in tail.split(")")[0].split(",")]
+
+
+def _select_items(sql: str) -> list[str]:
+    head = sql.split(" FROM ", 1)[0].replace("SELECT ", "", 1)
+    out, depth, cur = [], 0, ""
+    for ch in head:
+        depth += ch == "("
+        depth -= ch == ")"
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    return out + [cur.strip()]
+
+
+@pytest.mark.parametrize("name", ["agg_customer_segments", "agg_orders_realtime"])
+def test_single_level_aggregates_group_by_the_region_column(cfg, name):
+    sql = T.render(T.GOLD_SQL[name], cfg)
+    items = _select_items(sql)
+    position = next(i for i, item in enumerate(items, 1) if item.split(".")[-1].split(" AS ")[-1] == "data_region")
+    grouped = _group_by_items(sql)
+    assert str(position) in grouped or "data_region" in " ".join(grouped), f"gold.{name}: region not in GROUP BY"
+
+
+@pytest.mark.parametrize("name", ["agg_product_performance", "agg_inventory_turns"])
+def test_product_aggregates_are_split_per_region_in_every_subquery(cfg, name):
+    """Per-product totals must be computed per region, in the outer select and in each joined subquery."""
+    sql = T.render(T.GOLD_SQL[name], cfg)
+    assert "GROUP BY product_id, data_region" in sql
+    assert sql.count("GROUP BY product_id, data_region") == sql.count("GROUP BY")   # none left global
+    assert "s.data_region AS data_region" in sql or "s.data_region," in sql
+    if "LEFT JOIN (SELECT" in sql:
+        assert "s.data_region = " in sql, f"gold.{name}: joined subquery not matched on region"
+
+
+def test_no_regional_aggregate_has_a_global_only_group_by(cfg):
+    for name in ("agg_product_performance", "agg_inventory_turns"):
+        sql = T.render(T.GOLD_SQL[name], cfg)
+        assert "GROUP BY product_id)" not in sql and "GROUP BY product_id " not in sql
+
+
 def test_gold_reads_only_silver_or_gold_never_bronze(cfg):
     for name, template in T.GOLD_SQL.items():
         assert "bronze" not in T.render(template, cfg), f"gold.{name} must not read bronze directly"

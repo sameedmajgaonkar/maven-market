@@ -26,6 +26,9 @@ storage:
 audit:
   table: audit.audit_logs
 
+# Bronze is declared inside the Lakeflow pipeline (src/maven_market/pipelines/bronze.py): the pipeline is the
+# only writer of every Bronze table and manages their checkpoints and schema locations.
+#
 # Batch CSV sources -> Bronze. 'path' is relative to storage.landing_root.
 # NOTE: customers and products are NOT here - they come from MongoDB (see `mongo:` below), which is
 # the only writer of bronze.customers / bronze.products. A table must have exactly one writer.
@@ -36,10 +39,8 @@ sources:
   calendar:  {path: calendar,     bronze_table: bronze.calendar,     format: csv}
   transactions: {path: transactions, bronze_table: bronze.transactions, format: csv}
 
-# Auto Loader (CSV) settings. schema/checkpoint dirs are created under storage.landing_root.
+# Auto Loader (CSV) settings.
 autoloader:
-  schema_dir: _schemas
-  checkpoint_dir: _checkpoints
   # 'rescue': unexpected/new columns land in the rescued-data column; the stream never fails on drift.
   schema_evolution_mode: rescue
   rescued_data_column: _rescued_data
@@ -54,7 +55,6 @@ kafka:
     api_key: confluent-api-key
     api_secret: confluent-api-secret
   starting_offsets: earliest
-  checkpoint_dir: _checkpoints
   topics:
     orders:
       bronze_table: bronze.orders
@@ -132,12 +132,11 @@ pipeline:
   scd2_ignore_columns: [_rescued_data, _source_file_path, _source_file_name, _source_file_modified_at, _ingested_at]
 
 # NoSQL source (MongoDB Atlas) -> Bronze: the master data (customers + products).
-# Seeded from the CSVs by `python -m maven_market.producers.mongo_seed`, then ingested into Bronze.
-# Append-only, like the other Bronze tables: only NEW or CHANGED documents are appended each run.
+# Seeded from the CSVs by `python -m maven_market.producers.mongo_seed`, then read inside the pipeline by a
+# Python streaming data source (src/maven_market/ingestion/mongo_source.py, pymongo, serverless-safe).
+# Append-only, like the other Bronze tables: a snapshot is appended whenever the collection has changed since
+# the last committed offset (snapshot-on-change, not CDC). Silver's SCD2 flow turns real changes into history.
 mongo:
-  # pymongo: pure Python, works on serverless.  spark_connector: MongoDB Spark Connector v10.x,
-  # needs a Dedicated (single-user) classic cluster with the Maven library installed.
-  method: pymongo
   uri_secret: mongo-uri
   database: maven_market
   collections:

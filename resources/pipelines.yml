@@ -9,9 +9,14 @@ resources:
       serverless: true
       libraries:
         - file:
+            path: ../src/maven_market/pipelines/bronze.py
+        - file:
             path: ../src/maven_market/pipelines/silver.py
         - file:
             path: ../src/maven_market/pipelines/gold.py
+      environment:
+        dependencies:
+          - "pymongo==4.10.1"
       configuration:
         maven.env: ${var.env}
         # config/ and src/ are synced with the bundle; the pipeline imports from there

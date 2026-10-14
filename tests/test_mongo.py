@@ -3,17 +3,14 @@ from datetime import date, datetime
 
 import pytest
 
-from maven_market.config import load_config
-from maven_market.config import bronze_fqn
+from maven_market.config import bronze_fqn, load_config
 from maven_market.ingestion.mongo_ingest import (
-    changed_rows,
     documents_to_rows,
-    method,
-    mongo_options,
+    plan_snapshot,
     schema_columns,
     schema_types,
+    snapshot_digest,
 )
-from maven_market.jobs.bronze_mongo import parse_args, select_collections
 from maven_market.producers.mongo_seed import build_documents
 
 
@@ -135,48 +132,90 @@ def test_documents_to_rows_extra_unknown_field_dropped(cfg):
     assert "surprise" not in rows[0]
 
 
-# ---- new/changed detection (append-only Bronze, only real changes appended) ----
+# ---- type coercion of BSON values ----
+
+def test_documents_to_rows_normalizes_decimal128_and_objectid():
+    class FakeDecimal128:
+        def to_decimal(self):
+            from decimal import Decimal
+            return Decimal("19.99")
+
+    cols = ["_id", "product_id", "product_retail_price"]
+    types = {"_id": "STRING", "product_id": "INT", "product_retail_price": "DOUBLE"}
+    rows = documents_to_rows([{"_id": "obj123", "product_id": "42", "product_retail_price": FakeDecimal128()}],
+                             cols, types)
+    assert rows[0] == {"_id": "obj123", "product_id": 42, "product_retail_price": 19.99}
+
+
+def test_documents_to_rows_stringifies_nested_documents_deterministically():
+    import json
+    rows = documents_to_rows([{"product_id": 1, "details": {"sizes": ["M", "L"], "color": "red"}}],
+                             ["product_id", "details"], {"product_id": "INT", "details": "STRING"})
+    assert json.loads(rows[0]["details"]) == {"color": "red", "sizes": ["M", "L"]}
+    assert rows[0]["details"].index("color") < rows[0]["details"].index("sizes")  # sort_keys
+
+
+def test_documents_to_rows_failed_casts_become_null_not_errors():
+    rows = documents_to_rows(
+        [{"is_active": "true", "count": "100"}, {"is_active": "false", "count": "invalid_int"}],
+        ["is_active", "count"], {"is_active": "BOOLEAN", "count": "INT"},
+    )
+    assert rows[0] == {"is_active": True, "count": 100}
+    assert rows[1] == {"is_active": False, "count": None}
+
+
+# ---- snapshot-on-change: the stream offset is a digest of the collection ----
 
 COLS = ["_id", "customer_id", "member_card", "yearly_income"]
 V1 = {"_id": "a", "customer_id": 1, "member_card": "Bronze", "yearly_income": "$30K - $50K"}
+V2 = {"_id": "b", "customer_id": 2, "member_card": "Silver", "yearly_income": "$50K - $70K"}
 
 
-def test_changed_rows_first_load_appends_everything():
-    rows = [V1, {**V1, "_id": "b", "customer_id": 2}]
-    assert changed_rows(rows, {}, "customer_id", COLS) == rows
+def test_first_batch_emits_the_whole_snapshot():
+    emit, digest = plan_snapshot([V1, V2], COLS, "customer_id", "")
+    assert emit == [V1, V2] and digest
 
 
-def test_changed_rows_unchanged_snapshot_appends_nothing():
-    assert changed_rows([V1], {1: dict(V1)}, "customer_id", COLS) == []
+def test_unchanged_collection_emits_nothing_and_keeps_the_offset():
+    _, committed = plan_snapshot([V1, V2], COLS, "customer_id", "")
+    emit, digest = plan_snapshot([V1, V2], COLS, "customer_id", committed)
+    assert emit == [] and digest == committed
 
 
-def test_changed_rows_detects_a_changed_field():
-    v2 = {**V1, "member_card": "Golden"}
-    assert changed_rows([v2], {1: dict(V1)}, "customer_id", COLS) == [v2]
+def test_digest_ignores_document_order():
+    assert snapshot_digest([V1, V2], COLS, "customer_id") == snapshot_digest([V2, V1], COLS, "customer_id")
 
 
-def test_changed_rows_detects_a_new_id_among_unchanged_ones():
-    new = {**V1, "_id": "z", "customer_id": 9}
-    assert changed_rows([V1, new], {1: dict(V1)}, "customer_id", COLS) == [new]
+def test_a_changed_field_emits_a_fresh_snapshot_with_a_new_offset():
+    _, committed = plan_snapshot([V1, V2], COLS, "customer_id", "")
+    edited = {**V1, "member_card": "Golden"}
+    emit, digest = plan_snapshot([edited, V2], COLS, "customer_id", committed)
+    assert emit == [edited, V2] and digest != committed
 
 
-def test_changed_rows_ignores_mongo_id_and_housekeeping_columns_in_comparison():
-    stored = {**V1, "_id": "DIFFERENT", "_ingested_at": "2026-01-01"}  # extra Bronze-only column
-    assert changed_rows([V1], {1: stored}, "customer_id", COLS) == []
+def test_a_new_document_emits_a_fresh_snapshot():
+    _, committed = plan_snapshot([V1], COLS, "customer_id", "")
+    emit, digest = plan_snapshot([V1, V2], COLS, "customer_id", committed)
+    assert len(emit) == 2 and digest != committed
 
 
-def test_changed_rows_treats_a_revert_to_an_old_value_as_a_change():
-    # latest stored is Golden; source went back to Bronze -> that IS a change
-    latest = {**V1, "member_card": "Golden"}
-    assert changed_rows([V1], {1: latest}, "customer_id", COLS) == [V1]
+def test_null_vs_value_is_a_change():
+    _, committed = plan_snapshot([V1], COLS, "customer_id", "")
+    emit, _ = plan_snapshot([{**V1, "member_card": None}], COLS, "customer_id", committed)
+    assert emit
 
 
-def test_changed_rows_null_vs_value_is_a_change():
-    assert changed_rows([{**V1, "member_card": None}], {1: dict(V1)}, "customer_id", COLS)
-    assert not changed_rows([{**V1, "member_card": None}], {1: {**V1, "member_card": None}}, "customer_id", COLS)
+def test_an_empty_collection_is_refused():
+    with pytest.raises(ValueError):
+        plan_snapshot([], COLS, "customer_id", "")
 
 
-# ---- bronze_fqn: one dataset name -> exactly one ingestion source ----
+def test_reverting_an_edit_is_seen_as_a_change_against_the_committed_offset():
+    _, v1_digest = plan_snapshot([V1], COLS, "customer_id", "")
+    _, v2_digest = plan_snapshot([{**V1, "member_card": "Golden"}], COLS, "customer_id", v1_digest)
+    emit, digest = plan_snapshot([V1], COLS, "customer_id", v2_digest)
+    assert emit == [V1] and digest == v1_digest
+
 
 def test_bronze_fqn_resolves_across_csv_mongo_and_kafka(cfg):
     assert bronze_fqn(cfg, "stores") == "maven_market_uc.bronze.stores"           # csv
@@ -190,32 +229,3 @@ def test_bronze_fqn_rejects_a_name_defined_by_two_sources(cfg):
     clash = {**cfg, "sources": {**cfg["sources"], "customers": {"bronze_table": "bronze.customers"}}}
     with pytest.raises(ValueError):
         bronze_fqn(clash, "customers")
-
-
-# ---- method switch / options ----
-
-def test_method_defaults_to_pymongo_and_rejects_unknown(cfg):
-    assert method(cfg) == "pymongo"
-    with pytest.raises(ValueError):
-        method({**cfg, "mongo": {**cfg["mongo"], "method": "carrier-pigeon"}})
-
-
-def test_connector_options_built_from_config(cfg):
-    o = mongo_options(cfg, "mongodb+srv://u:p@c.mongodb.net/", "customers")
-    assert (o["database"], o["collection"]) == ("maven_market", "customers")
-
-
-def test_unknown_collection_raises(cfg):
-    with pytest.raises(KeyError):
-        mongo_options(cfg, "mongodb+srv://x", "product_reviews")
-
-
-# ---- job entry point ----
-
-def test_job_args_and_collection_selection(cfg):
-    assert parse_args([]).collections is None
-    assert parse_args(["--collections", "products"]).collections == ["products"]
-    assert set(select_collections(cfg, None)) == {"products", "customers"}
-    assert select_collections(cfg, ["customers"]) == ["customers"]
-    with pytest.raises(KeyError):
-        select_collections(cfg, ["nope"])

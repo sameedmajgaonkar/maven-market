@@ -11,7 +11,7 @@ include:
 artifacts:
   default:
     type: whl
-    build: python -m build --wheel
+    build: pip wheel --no-deps -w dist .
     path: .
 
 variables:

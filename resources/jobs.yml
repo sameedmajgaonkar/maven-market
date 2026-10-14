@@ -1,62 +1,35 @@
 # Paths in resources/*.yml are relative to THIS file (hence ../dist, not ./dist).
 resources:
   jobs:
-    bronze_csv_ingest:
-      name: maven_market_bronze_csv_ingest
-      description: Auto Loader - load landing-zone CSVs into Bronze (config-driven)
-      max_concurrent_runs: 1
-      tasks:
-        - task_key: ingest_csv
-          environment_key: default
-          python_wheel_task:
-            package_name: maven_market
-            entry_point: bronze_csv
-            parameters:
-              - "--env"
-              - "${var.env}"
-              # config/ is synced with the bundle; the wheel cannot locate it on its own
-              - "--config-dir"
-              - "${workspace.file_path}/config"
-      environments:
-        - environment_key: default
-          spec:
-            environment_version: "3"
-            dependencies:
-              - ../dist/*.whl
-
     medallion_refresh:
       name: maven_market_medallion_refresh
-      description: Bronze (CSV + Kafka) -> Silver -> Gold, end to end
+      description: >-
+        One end-to-end pipeline update (CSV + Kafka + MongoDB -> Bronze -> Silver -> Gold), then re-apply governance tags and run the gold tag gate
       max_concurrent_runs: 1
       tasks:
-        - task_key: ingest_csv
-          environment_key: default
-          python_wheel_task:
-            package_name: maven_market
-            entry_point: bronze_csv
-            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config"]
-        - task_key: ingest_kafka
-          environment_key: default
-          python_wheel_task:
-            package_name: maven_market
-            entry_point: bronze_kafka
-            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config"]
-        - task_key: refresh_silver_gold
-          depends_on:
-            - task_key: ingest_csv
-            - task_key: ingest_kafka
+        - task_key: refresh_pipeline
           pipeline_task:
             pipeline_id: ${resources.pipelines.silver_gold.id}
         # A refresh can recreate a table and drop its tags: re-apply them, then fail the run if any
         # gold table is still missing owner_team / data_sensitivity (the structural rule).
         - task_key: govern
           depends_on:
-            - task_key: refresh_silver_gold
+            - task_key: refresh_pipeline
           environment_key: default
           python_wheel_task:
             package_name: maven_market
             entry_point: governance
             parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config", "--action", "refresh"]
+        # Record the update (rows out, rows rejected, errors) in audit.audit_logs - also when it failed.
+        - task_key: audit
+          depends_on:
+            - task_key: refresh_pipeline
+          run_if: ALL_DONE
+          environment_key: default
+          python_wheel_task:
+            package_name: maven_market
+            entry_point: pipeline_audit
+            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config", "--pipeline-id", "${resources.pipelines.silver_gold.id}"]
       environments:
         - environment_key: default
           spec:
@@ -75,24 +48,6 @@ resources:
             package_name: maven_market
             entry_point: governance
             parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config", "--action", "bootstrap"]
-      environments:
-        - environment_key: default
-          spec:
-            environment_version: "3"
-            dependencies:
-              - ../dist/*.whl
-
-    bronze_mongo_ingest:
-      name: maven_market_bronze_mongo_ingest
-      description: Snapshot the MongoDB Atlas product master into Bronze (pymongo, serverless-safe)
-      max_concurrent_runs: 1
-      tasks:
-        - task_key: ingest_mongo
-          environment_key: default
-          python_wheel_task:
-            package_name: maven_market
-            entry_point: bronze_mongo
-            parameters: ["--env", "${var.env}", "--config-dir", "${workspace.file_path}/config"]
       environments:
         - environment_key: default
           spec:
@@ -119,28 +74,6 @@ resources:
               - "${var.producer_max_events}"
               - "--events-per-second"
               - "${var.producer_events_per_second}"
-      environments:
-        - environment_key: default
-          spec:
-            environment_version: "3"
-            dependencies:
-              - ../dist/*.whl
-
-    bronze_kafka_ingest:
-      name: maven_market_bronze_kafka_ingest
-      description: Drain new Kafka events (orders, inventory) into Bronze; bad events go to dead-letter tables
-      max_concurrent_runs: 1
-      tasks:
-        - task_key: ingest_kafka
-          environment_key: default
-          python_wheel_task:
-            package_name: maven_market
-            entry_point: bronze_kafka
-            parameters:
-              - "--env"
-              - "${var.env}"
-              - "--config-dir"
-              - "${workspace.file_path}/config"
       environments:
         - environment_key: default
           spec:

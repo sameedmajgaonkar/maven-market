@@ -39,3 +39,5 @@ zed-work.md
 .vscode/
 .idea/
 .DS_Store
+
+chat_export.json

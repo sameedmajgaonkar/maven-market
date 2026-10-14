@@ -21,7 +21,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from maven_market.config import get, load_config
+from maven_market.config import audit_table, get, load_config
 from maven_market.governance import (
     REQUIRED_GOLD_TAGS,
     find_untagged_tables,
@@ -29,7 +29,6 @@ from maven_market.governance import (
     split_statements,
     tag_assignment_statements,
 )
-from maven_market.jobs.bronze_csv import audit_table
 from maven_market.logging_utils import AuditLogger
 
 # Dependency order: grants before the policies that rely on them; the row-filter function and mapping

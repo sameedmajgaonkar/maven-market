@@ -8,6 +8,16 @@ structural rule for Gold) secures it; Databricks Asset Bundles and GitHub Action
 
 Capstone for the Rising Star Batch 9 program — evaluation Oct 15–16, 2026.
 
+## Delivered assets
+
+- Four published AI/BI dashboards: Executive Overview, Real-Time Operations,
+  Regional Sales, and Platform Health. Dashboard IDs and copy-paste Genie prompts
+  are in [`docs/06_DASHBOARD_GENIE_PROMPTS.md`](docs/06_DASHBOARD_GENIE_PROMPTS.md).
+- POC E: a Lakeflow Designer visual data-prep flow that joins Gold dimensions to
+  an external store-target CSV, adds a Genie Code transformation, and writes
+  `sandbox.store_target_attainment`. See
+  [`docs/07_POC_E_LAKEFLOW_DESIGNER.md`](docs/07_POC_E_LAKEFLOW_DESIGNER.md).
+
 ## The pipeline
 
 ```mermaid

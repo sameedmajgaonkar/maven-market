@@ -11,7 +11,7 @@ SELECT current_user() AS me,
        is_account_group_member('data_compliance') AS is_data_compliance;
 
 -- =====================================================================================================
--- A. Saakshi (admin + data_compliance) - EXEMPT: sees everything, unmasked
+-- A. Akanksha (admin) - EXEMPT: sees everything, unmasked
 -- =====================================================================================================
 SELECT data_region, count(*) AS rows_visible
 FROM maven_market_uc.gold.fact_sales GROUP BY 1 ORDER BY 1;
@@ -22,7 +22,7 @@ FROM maven_market_uc.gold.dim_customer WHERE customer_id = 1;
 --   expected: real values  (Sheri | Nowmer | ... | 15057 | 87462024688 | 1961-08-26)
 
 -- =====================================================================================================
--- B. Akanksha (regional_managers_NA, data_engineers) - mapped to NA only
+-- B. Saakshi Dhuri (regional_managers_NA) - mapped to NA only
 -- =====================================================================================================
 SELECT data_region, count(*) AS rows_visible
 FROM maven_market_uc.gold.fact_sales GROUP BY 1 ORDER BY 1;
@@ -40,8 +40,8 @@ FROM maven_market_uc.gold.dim_customer WHERE customer_id = 1;
 --   expected: names/address '***', postal code and account number 0, birthdate 1970-01-01;
 --             yearly_income stays readable ($50K - $100K): it is tagged Financial, not PII
 
-SELECT first_name, birthdate FROM maven_market_uc.silver.dim_customer LIMIT 1;   -- masked as well
-SELECT first_name, birthdate FROM maven_market_uc.bronze.customers   LIMIT 1;   -- masked as well (data_engineers can read bronze)
+SELECT first_name, birthdate FROM maven_market_uc.silver.dim_customer LIMIT 1;   -- permission error (regional managers can read gold only)
+SELECT first_name, birthdate FROM maven_market_uc.bronze.customers   LIMIT 1;   -- permission error
 
 -- =====================================================================================================
 -- C. Sameed (regional_managers_EU) - mapped to EU only
@@ -77,7 +77,7 @@ SELECT count(*) FROM maven_market_uc.bronze.customers;
 -- CREATE TABLE maven_market_uc.gold.zz_untagged_demo AS SELECT 1 AS id, 'EU' AS data_region;
 -- SELECT count(*) FROM maven_market_uc.gold.zz_untagged_demo;                       -- admin: 1
 --
--- E2. as Akanksha:  SELECT count(*) FROM maven_market_uc.gold.zz_untagged_demo;     -- expected: 0
+-- E2. as Saakshi Dhuri: SELECT count(*) FROM maven_market_uc.gold.zz_untagged_demo;  -- expected: 0
 --
 -- E3. the pipeline gate flags it (fails the run):
 --       databricks bundle run governance_bootstrap -t dev       -- gold_tag_gate FAILED: zz_untagged_demo

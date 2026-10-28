@@ -3,7 +3,7 @@
 Catches SQL errors (typos, ANSI-mode failures, bad regexes) BEFORE a pipeline update, without
 creating anything: every statement is a read-only SELECT.
 
-    python scripts/dry_run_transforms.py --profile dbw-maven-market --warehouse-id <id>
+    python scripts/dry_run_transforms.py --profile ak-dbx --warehouse-id <id>
 
 Requires the Databricks CLI on PATH, already authenticated for ``--profile``.
 Gold SQL reads Silver tables, which only exist after the first pipeline run, so it is not covered.

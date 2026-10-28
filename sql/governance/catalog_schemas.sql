@@ -14,7 +14,7 @@
 -- Replace the account/container if yours differ.
 
 CREATE CATALOG IF NOT EXISTS IDENTIFIER(:catalog)
-  MANAGED LOCATION 'abfss://unity-catalog@stmavenmarketsa.dfs.core.windows.net/catalog'
+  MANAGED LOCATION 'abfss://unity-catalog@sgtmavenmarket.dfs.core.windows.net/catalog'
   COMMENT 'Maven Market secure retail analytics lakehouse';
 
 USE CATALOG IDENTIFIER(:catalog);

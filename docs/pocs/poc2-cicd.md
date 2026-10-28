@@ -55,13 +55,14 @@ GRANT USE SCHEMA, CREATE TABLE, SELECT, MODIFY ON SCHEMA maven_market_uc.bronze 
 GRANT USE SCHEMA, CREATE TABLE, CREATE MATERIALIZED VIEW ON SCHEMA maven_market_uc.silver TO `<SP_APPLICATION_ID>`;
 GRANT USE SCHEMA, CREATE TABLE, CREATE MATERIALIZED VIEW ON SCHEMA maven_market_uc.gold TO `<SP_APPLICATION_ID>`;
 GRANT USE SCHEMA, CREATE TABLE, SELECT, MODIFY ON SCHEMA maven_market_uc.audit TO `<SP_APPLICATION_ID>`;
-GRANT READ FILES, WRITE FILES ON EXTERNAL LOCATION maven_market_landing TO `<SP_APPLICATION_ID>`;
+GRANT READ FILES, WRITE FILES ON EXTERNAL LOCATION loc_landing TO `<SP_APPLICATION_ID>`;
+GRANT READ FILES, WRITE FILES ON EXTERNAL LOCATION loc_unity_catalog TO `<SP_APPLICATION_ID>`;
 ```
 Deploying alone needs far less; these let the service principal also *run* the prod jobs.
 
 ### 4. GitHub configuration
 ```bash
-gh variable set DATABRICKS_HOST --body "https://adb-7405608768245041.1.azuredatabricks.net"
+gh variable set DATABRICKS_HOST --body "https://adb-7405615136388825.5.azuredatabricks.net"
 ```
 Then in the repo: **Settings -> Environments -> New environment -> `prod`** and add the environment
 secret `DATABRICKS_CLIENT_ID` = the service principal's application (client) ID.

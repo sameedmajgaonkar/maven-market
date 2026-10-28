@@ -105,7 +105,7 @@ def test_mongo_collections_have_what_the_stream_needs(cfg):
 
 
 def test_connection_secrets_are_names_never_values(cfg):
-    assert cfg["mongo"]["uri_secret"] == "mongo-uri"
+    assert cfg["mongo"]["uri_secret"] == "mongo-url"
     assert "mongodb+srv" not in str(cfg)
 
 

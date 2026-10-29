@@ -10,6 +10,8 @@ Capstone for the Rising Star Batch 9 program — evaluation Oct 15–16, 2026.
 
 ## Delivered assets
 
+- Six capstone POC write-ups, with evidence and remaining verification gaps:
+  [POC index](docs/pocs/README.md).
 - Four published AI/BI dashboards: Executive Overview, Real-Time Operations,
   Regional Sales, and Platform Health. Dashboard IDs and copy-paste Genie prompts
   are in [`docs/06_DASHBOARD_GENIE_PROMPTS.md`](docs/06_DASHBOARD_GENIE_PROMPTS.md).
@@ -17,6 +19,13 @@ Capstone for the Rising Star Batch 9 program — evaluation Oct 15–16, 2026.
   an external store-target CSV, adds a Genie Code transformation, and writes
   `sandbox.store_target_attainment`. See
   [`docs/07_POC_E_LAKEFLOW_DESIGNER.md`](docs/07_POC_E_LAKEFLOW_DESIGNER.md).
+- Seven-pillar Well-Architected Framework assessment with live evidence, diagrams,
+  trade-off register and remediation roadmap:
+  [`docs/08_WELL_ARCHITECTED_FRAMEWORK.md`](docs/08_WELL_ARCHITECTED_FRAMEWORK.md).
+- Enterprise cost report and editable Excel workbook with observed billing,
+  workload scenarios, and one-/three-year TCO:
+  [cost report](docs/09_ENTERPRISE_COST_ESTIMATION.md) ·
+  [Excel workbook](docs/cost/Maven_Market_Enterprise_Cost_Estimation.xlsx).
 
 ## The pipeline
 
@@ -81,7 +90,7 @@ databricks bundle run medallion_refresh -t dev      # or: bundle run silver_gold
 ## First-time / seeding notes
 
 - Secrets (Key Vault-backed scope `maven_market`): `confluent-bootstrap`, `confluent-api-key`,
-  `confluent-api-secret`, `mongo-uri`.
+  `confluent-api-secret`, `mongo-url`.
 - Seed Atlas from the source CSVs: `python -m maven_market.producers.mongo_seed` (needs `MONGO_URI`).
 - The pipeline's run-as identity must be in the `admin` group, which the ABAC policies exempt; otherwise masked
   or filtered values would be written permanently into the tables it builds.
